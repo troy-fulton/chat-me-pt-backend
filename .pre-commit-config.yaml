@@ -1,0 +1,45 @@
+repos:
+  - repo: local
+    hooks:
+      - id: poetry-check
+        name: poetry-check
+        description: Check Poetry Configuration
+        entry: poetry check
+        language: system
+        pass_filenames: false
+        files: ^pyproject\.toml$
+      - id: isort
+        name: isort
+        description: Sort imports using isort
+        entry: isort
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: black
+        name: black
+        description: Format code using black
+        entry: black
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: lint
+        name: lint
+        description: Run linters
+        entry: flake8
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: typecheck
+        name: mypy
+        description: Type check using mypy
+        entry: mypy
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: typecheck
+        name: mypy
+        description: Type check strictly using mypy
+        entry: mypy --strict --cache-dir=.mypy_strict_cache
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
