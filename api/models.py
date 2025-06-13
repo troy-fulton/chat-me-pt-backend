@@ -5,6 +5,7 @@ from django.db import models
 
 class Visitor(models.Model):
     session_id = models.CharField(max_length=64, unique=True)
+    name = models.CharField(max_length=100, null=True, blank=True)
     interests: Any = models.JSONField(default=list, blank=True)
     company = models.CharField(max_length=100, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

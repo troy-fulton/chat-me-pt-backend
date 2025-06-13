@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 
 from rest_framework import status
@@ -7,6 +8,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import ChatMessage, Conversation, Visitor
+
+WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "Hello! How can I assist you today?")
 
 
 class WelcomeView(APIView):
@@ -41,12 +44,33 @@ class WelcomeView(APIView):
         )
 
 
+def get_visitor(request: Request) -> Visitor:
+    session_id = request.session.session_key
+    return Visitor.objects.get(session_id=session_id)
+
+
+def get_conversation(visitor: Visitor, end_previous: bool = False) -> Conversation:
+    # Get the latest active conversation or create a new one if none exist.
+    conversation = (
+        Conversation.objects.filter(visitor=visitor, ended_at__isnull=True)
+        .order_by("-created_at")
+        .first()
+    )
+    if not conversation:
+        conversation = Conversation.objects.create(visitor=visitor)
+    elif end_previous:
+        conversation.ended_at = datetime.now()
+        conversation.save()
+        conversation = Conversation.objects.create(visitor=visitor)
+    return conversation
+
+
 class ConversationListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request: Request) -> Response:
         try:
-            visitor = Visitor.objects.get(session_id=request.session.session_key)
+            visitor = get_visitor(request)
         except Visitor.DoesNotExist:
             return Response({"redirect": "/welcome"}, status=status.HTTP_302_FOUND)
 
@@ -62,30 +86,49 @@ class ConversationListView(APIView):
         ]
         return Response({"conversations": conversation_data}, status=status.HTTP_200_OK)
 
+    def post(self, request: Request) -> Response:
+        """
+        Starts a new conversation for the current visitor
+        """
+        try:
+            visitor = get_visitor(request)
+        except Visitor.DoesNotExist:
+            return Response({"redirect": "/welcome"}, status=status.HTTP_302_FOUND)
+
+        # Limit to 5 active conversations
+        active_conversations = Conversation.objects.filter(
+            visitor=visitor, ended_at__isnull=True
+        ).count()
+        if active_conversations >= 5:
+            return Response(
+                {"error": "You have reached the limit of 5 active conversations."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        conversation = Conversation.objects.create(visitor=visitor)
+        return Response(
+            {
+                "message": WELCOME_MESSAGE,
+                "conversation_id": conversation.id,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class ChatAPIView(APIView):
     permission_classes = [AllowAny]
-    welcome_message = "Hello! How can I assist you today?"
 
-    def get_visitor(self, request: Request) -> Visitor:
-        session_id = request.session.session_key
-        return Visitor.objects.get(session_id=session_id)
-
-    def get_conversation(
-        self, visitor: Visitor, end_previous: bool = False
+    def find_conversation(
+        self, visitor: Visitor, conversation_id: int | None
     ) -> Conversation:
-        # Get the latest active conversation or create a new one if none exist.
-        conversation = (
-            Conversation.objects.filter(visitor=visitor, ended_at__isnull=True)
-            .order_by("-created_at")
-            .first()
-        )
-        if not conversation:
-            conversation = Conversation.objects.create(visitor=visitor)
-        elif end_previous:
-            conversation.ended_at = datetime.now()
-            conversation.save()
-            conversation = Conversation.objects.create(visitor=visitor)
+        if conversation_id:
+            conversation = Conversation.objects.filter(
+                id=conversation_id, visitor=visitor
+            ).first()
+            if not conversation:
+                raise Conversation.DoesNotExist
+        else:
+            conversation = get_conversation(visitor)
         return conversation
 
     def get(self, request: Request) -> Response:
@@ -97,46 +140,40 @@ class ChatAPIView(APIView):
         conversation instead.
         """
         try:
-            visitor = self.get_visitor(request)
+            visitor = get_visitor(request)
         except Visitor.DoesNotExist:
             return Response({"redirect": "/welcome"}, status=status.HTTP_302_FOUND)
 
         conversation_id = request.query_params.get("conversation_id")
-        if conversation_id:
-            conversation = Conversation.objects.filter(
-                id=conversation_id, visitor=visitor
-            ).first()
-            if not conversation:
-                return Response(
-                    {"error": "Conversation not found."},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-        else:
-            conversation = self.get_conversation(visitor)
+        if conversation_id is None:
+            return Response(
+                {"error": "conversation_id query parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        conversation = Conversation.objects.filter(
+            id=conversation_id, visitor=visitor
+        ).first()
+        if not conversation:
+            return Response(
+                {"error": "Conversation not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         messages = ChatMessage.objects.filter(conversation=conversation).order_by(
             "timestamp"
         )
         if not messages.exists():
-            # If no messages, return the welcome message
-            ChatMessage.objects.create(
-                conversation=conversation,
-                content=self.welcome_message,
-                role="assistant",
-                token_count=len(self.welcome_message.split()),
-            )
-            messages = ChatMessage.objects.filter(conversation=conversation).order_by(
-                "timestamp"
-            )
-
-        message_data = [
-            {
-                "role": msg.role,
-                "content": msg.content,
-                "timestamp": msg.timestamp,
-            }
-            for msg in messages
-        ]
+            message_data = []
+        else:
+            message_data = [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp,
+                }
+                for msg in messages
+            ]
         return Response({"messages": message_data}, status=status.HTTP_200_OK)
 
     def post(self, request: Request) -> Response:
@@ -145,11 +182,23 @@ class ChatAPIView(APIView):
         Returns a dummy chatgpt-like response (echoes or returns a canned response).
         """
         try:
-            visitor = self.get_visitor(request)
+            visitor = get_visitor(request)
         except Visitor.DoesNotExist:
             return Response({"redirect": "/welcome"}, status=status.HTTP_302_FOUND)
 
-        conversation = self.get_conversation(visitor)
+        conversation_id = request.data.get("conversation_id")
+        if conversation_id is None:
+            return Response(
+                {"error": "conversation_id query parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        conversation = self.find_conversation(visitor, conversation_id)
+        if not conversation:
+            return Response(
+                {"error": "Conversation not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         user_message = request.data.get("message")
         if not isinstance(user_message, str):
@@ -174,24 +223,3 @@ class ChatAPIView(APIView):
         )
 
         return Response({"response": response_text}, status=status.HTTP_200_OK)
-
-    def new_chat(self, request: Request) -> Response:
-        """
-        Endpoint to start a new chat session, ending any previous conversation.
-        """
-        try:
-            visitor = self.get_visitor(request)
-        except Visitor.DoesNotExist:
-            return Response({"redirect": "/welcome"}, status=status.HTTP_302_FOUND)
-
-        # Clear previous messages for the visitor
-        conversation = self.get_conversation(visitor, end_previous=True)
-
-        ChatMessage.objects.create(
-            conversation=conversation,
-            content=self.welcome_message,
-            role="assistant",
-            token_count=len(self.welcome_message.split()),
-        )
-
-        return Response({"message": self.welcome_message}, status=status.HTTP_200_OK)
