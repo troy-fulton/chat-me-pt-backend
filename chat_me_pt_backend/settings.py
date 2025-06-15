@@ -19,11 +19,13 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "rest_framework",
     "api",
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -82,3 +84,13 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+
+if IN_RAILWAY:
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "")
+    CORS_ALLOWED_ORIGINS = [
+        FRONTEND_URL,
+    ]
+else:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^http://localhost:\d+$",
+    ]
