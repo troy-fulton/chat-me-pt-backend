@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 
 from rest_framework import status
@@ -8,8 +7,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import ChatMessage, Conversation, Visitor
-
-WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "Hello! How can I assist you today?")
 
 
 class WelcomeView(APIView):
@@ -119,7 +116,6 @@ class ConversationListView(APIView):
         conversation = Conversation.objects.create(visitor=visitor)
         return Response(
             {
-                "message": WELCOME_MESSAGE,
                 "conversation_id": conversation.id,
             },
             status=status.HTTP_200_OK,
