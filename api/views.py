@@ -15,6 +15,17 @@ WELCOME_MESSAGE = os.getenv("WELCOME_MESSAGE", "Hello! How can I assist you toda
 class WelcomeView(APIView):
     permission_classes = [AllowAny]
 
+    def get(self, request: Request) -> Response:
+        session_id = request.session.session_key
+        if not session_id:
+            request.session.create()
+            session_id = request.session.session_key
+
+        visitor_exists = Visitor.objects.filter(
+            session_id=session_id, name__isnull=False
+        ).exists()
+        return Response({"visitor_exists": visitor_exists}, status=status.HTTP_200_OK)
+
     def post(self, request: Request) -> Response:
         name = request.data.get("name")
         if name is not None:

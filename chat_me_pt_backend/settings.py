@@ -94,3 +94,5 @@ else:
     CORS_ALLOWED_ORIGIN_REGEXES = [
         r"^http://localhost:\d+$",
     ]
+
+CORS_ALLOW_CREDENTIALS = True
