@@ -86,13 +86,17 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 if IN_RAILWAY:
-    FRONTEND_URL = os.getenv("FRONTEND_URL", "")
-    CORS_ALLOWED_ORIGINS = [
-        FRONTEND_URL,
-    ]
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "").strip()
+    print(f"FRONTEND_URL: {FRONTEND_URL}")
+    if FRONTEND_URL:
+        CORS_ALLOWED_ORIGINS = [FRONTEND_URL]
+    else:
+        CORS_ALLOWED_ORIGINS = []
 else:
     CORS_ALLOWED_ORIGIN_REGEXES = [
         r"^http://localhost:\d+$",
     ]
 
 CORS_ALLOW_CREDENTIALS = True
+SESSION_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SECURE = True
