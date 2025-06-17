@@ -28,10 +28,8 @@ class WelcomeView(APIView):
         if name is not None:
             name = str(name).strip()
         interests = request.data.get("interests")
-        interest_list = []
         if interests is not None:
             interests = str(interests).strip()
-            interest_list = interests.split(",")
         company = request.data.get("company")
         if company is not None:
             company = str(company).strip()
@@ -43,7 +41,7 @@ class WelcomeView(APIView):
 
         visitor, _ = Visitor.objects.get_or_create(session_id=session_id)
         visitor.name = name
-        visitor.interests = interest_list
+        visitor.interests = interests
         visitor.company = company
         visitor.save()
 
