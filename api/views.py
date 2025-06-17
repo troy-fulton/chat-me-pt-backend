@@ -6,6 +6,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .agent import (
+    ChatAgent,
+    ChatAgentData,
+    ChatAgentMessage,
+    get_system_message_content,
+)
 from .models import ChatMessage, Conversation, Visitor
 
 
@@ -100,16 +106,6 @@ class ConversationListView(APIView):
             visitor = get_visitor(request)
         except Visitor.DoesNotExist:
             return Response({"redirect": "/welcome"}, status=status.HTTP_302_FOUND)
-
-        # Limit to 5 active conversations
-        active_conversations = Conversation.objects.filter(
-            visitor=visitor, ended_at__isnull=True
-        ).count()
-        if active_conversations >= 5:
-            return Response(
-                {"error": "You have reached the limit of 5 active conversations."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         conversation = Conversation.objects.create(visitor=visitor)
         return Response(
@@ -211,20 +207,59 @@ class ChatAPIView(APIView):
                 {"error": "Message is required."}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Placeholder for a real LLM backend
-        response_text = f"You said: {user_message}"
+        user_message_timestamp = datetime.now()
+        # Pull the whole conversation history
+        messages = ChatMessage.objects.filter(conversation=conversation).order_by(
+            "timestamp"
+        )
+        existing_conversation_length = messages.count()
+        is_first_message = existing_conversation_length == 0
+        chat_messages = []
+
+        if is_first_message:
+            # If this is the first message, we can set a system message
+            system_message_content = get_system_message_content(visitor)
+            ChatMessage.objects.create(
+                conversation=conversation,
+                content=system_message_content,
+                role="system",
+                token_count=0,  # Token count can be calculated later if needed
+                timestamp=user_message_timestamp,
+            )
 
         ChatMessage.objects.create(
             conversation=conversation,
             content=user_message,
             role="visitor",
             token_count=len(user_message.split()),
+            timestamp=user_message_timestamp,
         )
+
+        for msg in messages:
+            chat_messages.append(
+                ChatAgentMessage(
+                    role=msg.role,  # type: ignore
+                    content=msg.content,
+                    timestamp=msg.timestamp,
+                    token_count=msg.token_count,
+                )
+            )
+        agent = ChatAgent(
+            ChatAgentData(messages=chat_messages, max_tokens_to_sample=1024),
+            visitor,
+        )
+
+        response_text = agent.chat()
         ChatMessage.objects.create(
             conversation=conversation,
             content=response_text,
             role="assistant",
             token_count=len(response_text.split()),
         )
+
+        if is_first_message:
+            # If this is the first message, we can set a title for the conversation
+            conversation.title = agent.name_chat()
+            conversation.save()
 
         return Response({"response": response_text}, status=status.HTTP_200_OK)

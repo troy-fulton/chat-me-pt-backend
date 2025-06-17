@@ -1198,6 +1198,23 @@ together = ["langchain-together"]
 xai = ["langchain-xai"]
 
 [[package]]
+name = "langchain-anthropic"
+version = "0.3.15"
+description = "An integration package connecting AnthropicMessages and LangChain"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "langchain_anthropic-0.3.15-py3-none-any.whl", hash = "sha256:894d670bc44e68e0b1f2f09e7e7f977a8f07085a596f114c79aefbb789f6d88d"},
+    {file = "langchain_anthropic-0.3.15.tar.gz", hash = "sha256:e62de2b0175c1fcca49fc4cc1f8742a4ab2385f0b94b7df4533fd06d577efd36"},
+]
+
+[package.dependencies]
+anthropic = ">=0.52.0,<1"
+langchain-core = ">=0.3.63,<1.0.0"
+pydantic = ">=2.7.4,<3.0.0"
+
+[[package]]
 name = "langchain-community"
 version = "0.3.25"
 description = "Community contributed LangChain integrations."
@@ -2812,4 +2829,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "ebfa8abdb73cdd94d4d440e461f5c73c798a1e871d207ed3806fc7bc4395a16c"
+content-hash = "6fa477568ae38e368147473c94e2f72e6295ac038bfd337287b969e57353b8ef"
