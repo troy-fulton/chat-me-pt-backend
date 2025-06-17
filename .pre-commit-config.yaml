@@ -36,8 +36,8 @@ repos:
         language: system
         types_or: [python, pyi]
         require_serial: true
-      - id: typecheck
-        name: mypy
+      - id: typecheck-strict
+        name: mypy-strict
         description: Type check strictly using mypy
         entry: mypy --strict --cache-dir=.mypy_strict_cache
         language: system
