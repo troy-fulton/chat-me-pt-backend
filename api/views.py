@@ -10,6 +10,7 @@ from .agent import (
     ChatAgent,
     ChatAgentData,
     ChatAgentMessage,
+    ChatMessageTooLongException,
     get_system_message_content,
 )
 from .models import ChatMessage, Conversation, Visitor
@@ -177,34 +178,38 @@ class ChatAPIView(APIView):
             ]
         return Response({"messages": message_data}, status=status.HTTP_200_OK)
 
+    def get_post_parameters(
+        self, request: Request
+    ) -> tuple[Visitor, Conversation, str]:
+        """
+        Helper method to extract visitor and conversation from the request.
+        Raises an exception if the visitor or conversation is not found.
+        """
+        visitor = get_visitor(request)
+
+        conversation_id = request.data["conversation_id"]
+        user_message = request.data["message"]
+
+        conversation = self.find_conversation(visitor, conversation_id)
+        return visitor, conversation, user_message
+
     def post(self, request: Request) -> Response:
         """
         Accepts a POST request with a 'message' key.
         Returns a dummy chatgpt-like response (echoes or returns a canned response).
         """
         try:
-            visitor = get_visitor(request)
+            visitor, conversation, user_message = self.get_post_parameters(request)
         except Visitor.DoesNotExist:
             return Response({"redirect": "/welcome"}, status=status.HTTP_302_FOUND)
-
-        conversation_id = request.data.get("conversation_id")
-        if conversation_id is None:
+        except Conversation.DoesNotExist:
             return Response(
-                {"error": "conversation_id query parameter is required."},
+                {"error": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+        except KeyError as key_error:
+            return Response(
+                {"error": str(key_error)},
                 status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        conversation = self.find_conversation(visitor, conversation_id)
-        if not conversation:
-            return Response(
-                {"error": "Conversation not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        user_message = request.data.get("message")
-        if not isinstance(user_message, str):
-            return Response(
-                {"error": "Message is required."}, status=status.HTTP_400_BAD_REQUEST
             )
 
         user_message_timestamp = datetime.now()
@@ -249,7 +254,16 @@ class ChatAPIView(APIView):
             visitor,
         )
 
-        response_text = agent.chat()
+        try:
+            response_text = agent.chat()
+        except ChatMessageTooLongException as e:
+            return Response(
+                {
+                    "error": str(e),
+                    "message": "Your message is too long. Please shorten it.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         ChatMessage.objects.create(
             conversation=conversation,
             content=response_text,
