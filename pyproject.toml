@@ -17,6 +17,10 @@ dj-database-url = "^3.0.0"
 psycopg2-binary = "^2.9.10"
 django-cors-headers = "^4.7.0"
 langchain-anthropic = "^0.3.15"
+sentence-transformers = "^4.1.0"
+langchain-huggingface = "^0.3.0"
+faiss-cpu = "^1.11.0"
+pypdf = "^5.6.0"
 
 [tool.poetry.group.test.dependencies]
 black = "^25.1.0"
