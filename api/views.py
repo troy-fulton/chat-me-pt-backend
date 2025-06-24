@@ -1,3 +1,5 @@
+import json
+import os
 from datetime import datetime
 
 from rest_framework import status
@@ -9,11 +11,17 @@ from rest_framework.views import APIView
 from .agent import (
     ChatAgent,
     ChatAgentData,
-    ChatAgentMessage,
     ChatMessageTooLongException,
-    get_system_message_content,
 )
+from .document_indexer import DirectoryRAGIndexer
 from .models import ChatMessage, Conversation, Visitor
+
+MAX_MESSAGE_LENGTH = int(os.getenv("MAX_MESSAGE_LENGTH", "1000"))
+MAX_MESSAGE_HISTORY = int(os.getenv("MAX_MESSAGE_HISTORY", "4"))
+DOC_DIRECTORY = os.environ["DOCUMENTS_DIRECTORY"]
+DOC_INDEX_PATH = os.environ["DOCUMENT_INDEX_PATH"]
+DOC_SCORE_THRESHOLD = float(os.getenv("DOC_SCORE_THRESHOLD", "0.5"))
+rag_indexer = DirectoryRAGIndexer(DOC_DIRECTORY, doc_index_path=DOC_INDEX_PATH)
 
 
 class WelcomeView(APIView):
@@ -189,6 +197,8 @@ class ChatAPIView(APIView):
 
         conversation_id = request.data["conversation_id"]
         user_message = request.data["message"]
+        if len(user_message) > MAX_MESSAGE_LENGTH:
+            raise ChatMessageTooLongException(user_message, MAX_MESSAGE_LENGTH)
 
         conversation = self.find_conversation(visitor, conversation_id)
         return visitor, conversation, user_message
@@ -211,51 +221,6 @@ class ChatAPIView(APIView):
                 {"error": str(key_error)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        user_message_timestamp = datetime.now()
-        # Pull the whole conversation history
-        messages = ChatMessage.objects.filter(conversation=conversation).order_by(
-            "timestamp"
-        )
-        existing_conversation_length = messages.count()
-        is_first_message = existing_conversation_length == 0
-        chat_messages = []
-
-        if is_first_message:
-            # If this is the first message, we can set a system message
-            system_message_content = get_system_message_content(visitor)
-            ChatMessage.objects.create(
-                conversation=conversation,
-                content=system_message_content,
-                role="system",
-                token_count=0,  # Token count can be calculated later if needed
-                timestamp=user_message_timestamp,
-            )
-
-        ChatMessage.objects.create(
-            conversation=conversation,
-            content=user_message,
-            role="visitor",
-            token_count=len(user_message.split()),
-            timestamp=user_message_timestamp,
-        )
-
-        for msg in messages:
-            chat_messages.append(
-                ChatAgentMessage(
-                    role=msg.role,  # type: ignore
-                    content=msg.content,
-                    timestamp=msg.timestamp,
-                    token_count=msg.token_count,
-                )
-            )
-        agent = ChatAgent(
-            ChatAgentData(messages=chat_messages, max_tokens_to_sample=1024),
-            visitor,
-        )
-
-        try:
-            response_text = agent.chat()
         except ChatMessageTooLongException as e:
             return Response(
                 {
@@ -264,16 +229,50 @@ class ChatAPIView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        user_message_timestamp = datetime.now()
+        # Pull the whole conversation history
+        messages = ChatMessage.objects.filter(conversation=conversation).order_by(
+            "-timestamp"
+        )[:MAX_MESSAGE_HISTORY]
+        existing_conversation_length = messages.count()
+        is_first_message = existing_conversation_length == 0
+
+        visitor_message = ChatMessage.objects.create(
+            conversation=conversation,
+            content=user_message,
+            role="visitor",
+            token_count=len(user_message.split()),
+            timestamp=user_message_timestamp,
+        )
+
+        retriever = rag_indexer.get_vectorstore().as_retriever(
+            search_type="similarity_score_threshold",
+            search_kwargs={"score_threshold": DOC_SCORE_THRESHOLD},
+        )
+        agent = ChatAgent(
+            ChatAgentData(messages=list(messages), max_tokens_to_sample=1024),
+            visitor,
+            retriever,
+        )
+
+        response, response_num_tokens, input_num_tokens = agent.chat(
+            visitor_message.content
+        )
         ChatMessage.objects.create(
             conversation=conversation,
-            content=response_text,
+            content=response["response"],
+            referenced_documents=json.dumps(response["sources"]),
             role="assistant",
-            token_count=len(response_text.split()),
+            token_count=response_num_tokens,
         )
+
+        visitor_message.token_count = input_num_tokens
+        visitor_message.save()
 
         if is_first_message:
             # If this is the first message, we can set a title for the conversation
             conversation.title = agent.name_chat()
             conversation.save()
 
-        return Response({"response": response_text}, status=status.HTTP_200_OK)
+        return Response(response, status=status.HTTP_200_OK)

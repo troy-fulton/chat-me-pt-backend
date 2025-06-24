@@ -14,7 +14,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 
 class DocumentMetadata(TypedDict):
-    file: str
+    filename: str
     description: str
 
 
@@ -25,6 +25,7 @@ class DirectoryRAGIndexer:
         embeddings: Embeddings | None = None,
         doc_index_path: str | None = None,
     ) -> None:
+        print("Initializing DirectoryRAGIndexer...")
         self.doc_index_path = doc_index_path
         self.directory = Path(doc_directory)
         self.embeddings: Embeddings = embeddings or HuggingFaceEmbeddings(
@@ -43,28 +44,46 @@ class DirectoryRAGIndexer:
             self.file_metadata: list[DocumentMetadata] = json.load(f)
 
     def _load_documents(self) -> list[Document]:
-        docs = []
+        print(f"Loading documents from {self.directory}...")
+        docs: list[Document] = []
 
         remaining_file_names = set()
-        for file in self.directory.glob("**/*"):
-            if file.suffix.lower() == ".pdf":
-                docs.extend(PyPDFLoader(str(file)).load())
-            elif file.suffix.lower() in [".txt", ".md"]:
-                docs.extend(TextLoader(str(file)).load())
-            elif file.suffix.lower() == ".pptx":
-                docs.extend(UnstructuredPowerPointLoader(str(file)).load())
-            elif file.name == "meta.json":
-                # Skip the meta.json file itself
-                continue
-            else:
-                remaining_file_names.add(file.name)
+        for document in self.file_metadata:
+            filepath = self.directory / document["filename"]
 
+            loaded_docs = list()
+            if filepath.suffix.lower() == ".pdf":
+                print(f"Loading PDF: {filepath}")
+                loaded_docs = PyPDFLoader(str(filepath)).load()
+            elif filepath.suffix.lower() in [".txt", ".md"]:
+                print(f"Loading text file: {filepath}")
+                loaded_docs = TextLoader(str(filepath)).load()
+            elif filepath.suffix.lower() == ".pptx":
+                print(f"Loading PowerPoint: {filepath}")
+                loaded_docs = UnstructuredPowerPointLoader(str(filepath)).load()
+            else:
+                remaining_file_names.add(filepath.name)
+
+            for loaded_doc in loaded_docs:
+                loaded_doc.metadata["filepath"] = filepath
+                loaded_doc.metadata["file"] = document["filename"]
+                loaded_doc.metadata["description"] = document["description"]
+            docs.extend(loaded_docs)
+
+        print(f"Loaded {len(docs)} documents from {self.directory}.")
+        print(f"Indexing remaining {len(remaining_file_names)} files semantically...")
         for entry in self.file_metadata:
-            remaining_file_names.discard(entry["file"])
+            if entry["filename"] not in remaining_file_names:
+                continue
+            remaining_file_names.discard(entry["filename"])
             docs.append(
                 Document(
                     page_content=entry["description"],
-                    metadata={"filepath": self.directory / entry["file"]},
+                    metadata={
+                        "filepath": self.directory / entry["filename"],
+                        "file": entry["filename"],
+                        "description": entry["description"],
+                    },
                 )
             )
 
@@ -75,12 +94,14 @@ class DirectoryRAGIndexer:
             for file_name in remaining_file_names:
                 print(f" - {file_name}")
 
+        print(f"Total documents loaded: {len(docs)}")
         return docs
 
     def build_vectorstore(self) -> FAISS:
         docs = self._load_documents()
         if len(docs) == 0:
             raise ValueError("No documents found to index.")
+        print("Building vector store...")
         return FAISS.from_documents(docs, self.embeddings)
 
     def get_vectorstore(self) -> FAISS:
@@ -88,10 +109,13 @@ class DirectoryRAGIndexer:
             raise ValueError("Document index path is not set.")
         if not Path(self.doc_index_path).exists():
             raise ValueError(f"Index path {self.doc_index_path} does not exist.")
-        return FAISS.load_local(self.doc_index_path, self.embeddings)
+        return FAISS.load_local(
+            self.doc_index_path, self.embeddings, allow_dangerous_deserialization=True
+        )
 
     def save_vectorstore(self, vectorstore: FAISS) -> None:
         if not self.doc_index_path:
             raise ValueError("Document index path is not set.")
+        print(f"Saving vector store to {self.doc_index_path}...")
         vectorstore.save_local(self.doc_index_path)
         print(f"Vector store saved to {self.doc_index_path}.")

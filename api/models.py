@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import models
 
 
@@ -33,6 +35,7 @@ class ChatMessage(models.Model):
         Conversation, related_name="messages", on_delete=models.CASCADE
     )
     content = models.TextField()
+    referenced_documents: Any = models.JSONField(default=list, blank=True)
     timestamp = models.DateTimeField(auto_now_add=True)
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
     token_count = models.IntegerField(default=0)
