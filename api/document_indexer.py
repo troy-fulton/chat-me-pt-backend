@@ -62,7 +62,7 @@ class DirectoryRAGIndexer:
                 print(f"Loading PowerPoint: {filepath}")
                 loaded_docs = UnstructuredPowerPointLoader(str(filepath)).load()
             else:
-                remaining_file_names.add(filepath.name)
+                remaining_file_names.add(document["filename"])
 
             for loaded_doc in loaded_docs:
                 loaded_doc.metadata["filepath"] = filepath
