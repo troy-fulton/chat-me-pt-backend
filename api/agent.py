@@ -2,7 +2,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from langchain.prompts import ChatPromptTemplate, FewShotPromptTemplate, PromptTemplate
 from langchain_anthropic import ChatAnthropic
@@ -15,6 +15,7 @@ from langchain_core.runnables import (
     RunnableSerializable,
 )
 from pydantic import SecretStr
+from transformers.pipelines import pipeline
 
 from .examples import examples_json
 from .models import ChatMessage, Visitor
@@ -39,7 +40,6 @@ class AIChat(TypedDict):
 
 class AIChatResponse(TypedDict):
     response: str
-    sources: list[str]
 
 
 class ChatException(Exception):
@@ -134,6 +134,7 @@ class ChatAgent:
             timeout=60,
             stop=None,
             max_tokens_to_sample=chat_data.max_tokens_to_sample,
+            temperature=0,
         )
         self.chat_start = len(chat_data.messages) == 0
         self.visitor = visitor
@@ -142,7 +143,7 @@ class ChatAgent:
     def get_examples(self) -> str:
         example_prompt = PromptTemplate.from_template(
             """User: {{{{{{{{ "message": "{user_message}" }}}}}}}}
-Response: {{{{{{{{ "response": {response}, "sources": {sources} }}}}}}}}"""
+Response: {{{{{{{{ "response": {response} }}}}}}}}"""
         )
 
         prompt = FewShotPromptTemplate(
@@ -155,7 +156,8 @@ Response: {{{{{{{{ "response": {response}, "sources": {sources} }}}}}}}}"""
 
     def get_system_message_template(self) -> str:
         system_message_template = """
-You are an ePortfolio search agent for Troy Fulton. Here is his ePortfolio:
+You are an ePortfolio search agent for Troy Fulton that only responds with JSONL
+format. Here is his ePortfolio:
 
 {context_block}
 
@@ -185,19 +187,13 @@ assistant. When considering the question:
 
 User messages will be formatted as a JSON objects like this:
 
-```json
-{{"message": "User message here"}}
-```
+`{{"message": "User message here"}}`
 
-Always respond only with a single line of strict, valid JSON. Escape all
-newlines as `\\n`. Include all sources that you cited in your answer to the
-question in the "sources" list:
+Respond with a single line of strict, valid JSONL with no trailing newline. Do
+not wrap the output in quotes. Do not format the response as Markdown or natural
+language:
 
-```json
-{{ "response": "Your response here", "sources": ["Source 1 Filename", "Source 2
-Filename"]
-}}
-```
+`{{"response": "Your response"}}`
         """
         if (
             self.visitor.name != ""
@@ -245,7 +241,7 @@ to help you assist them better:
         chat_history.append(("human", "{user_input}"))
         return chat_history
 
-    def chat(self, visitor_message: str) -> tuple[AIChatResponse, int, int]:
+    def chat(self, visitor_message: str) -> tuple[AIChatResponse, list[str], int]:
         """
         Process the chat messages and return the assistant's reply.
         This method expects the chat_data to contain messages in LangChain format.
@@ -263,6 +259,7 @@ to help you assist them better:
                 + f" and I want to know: {visitor_message}"
             )
         relevant_docs = self.retriever.get_relevant_documents(visitor_message)
+        relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
         context_block = (
             self.format_documents(relevant_docs)
             if relevant_docs
@@ -273,15 +270,21 @@ to help you assist them better:
         )
         # Convert messages to LangChain format
         rag_response = rag_chain.invoke(
-            {"user_input": visitor_message, "context_block": context_block}
+            {"user_input": visitor_message, "context_block": context_block},
+            max_output_tokens=self.chat_history_data.max_tokens_to_sample,
         )
         response_token_count = self.llm.get_num_tokens(rag_response)
-        input_token_count = self.llm.get_num_tokens(visitor_message)
         try:
-            chat_response: AIChatResponse = json.loads(rag_response)
+            chat_response: AIChatResponse = json.loads(
+                rag_response.encode("unicode_escape").decode("utf-8")
+            )
         except json.JSONDecodeError:
             raise ChatException(f"Failed to parse LLM response as JSON: {rag_response}")
-        return chat_response, response_token_count, input_token_count
+        return (
+            chat_response,
+            [doc.metadata["file"] for doc in relevant_docs],
+            response_token_count,
+        )
 
     def name_chat(self) -> str:
         """
@@ -306,6 +309,30 @@ to help you assist them better:
         response = self.llm.invoke([HumanMessage(content=prompt)])
         chat_name = str(response.content).strip()
         return chat_name
+
+    def detect_malicious_prompt(self, prompt: str) -> tuple[bool, Any]:
+        """
+        Uses Prompt-Guard-86M to detect if a prompt is malicious.
+        Returns (is_malicious: bool, raw_output: dict).
+        """
+        try:
+            # Load the pipeline (you may want to cache this in production)
+            classifier = pipeline(
+                "text-classification",
+                model="meta-llama/Prompt-Guard-86M",
+                top_k=None,
+            )
+            result = classifier(prompt)
+            # result is a list of dicts, one per label
+            is_malicious = any(
+                label["score"] >= 0.9
+                for label in result[0]
+                if label["label"] != "benign"
+            )
+            return is_malicious, result[0]
+        except Exception:
+            # If the model fails to load or classify, assume it's not malicious
+            return False, {"error": "Failed to classify prompt"}
 
 
 # Example usage:

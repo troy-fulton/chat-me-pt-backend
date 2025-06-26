@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime
 
+from django.db.models import Sum
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -21,6 +22,7 @@ MAX_MESSAGE_HISTORY = int(os.getenv("MAX_MESSAGE_HISTORY", "4"))
 DOC_DIRECTORY = os.environ["DOCUMENTS_DIRECTORY"]
 DOC_INDEX_PATH = os.environ["DOCUMENT_INDEX_PATH"]
 DOC_SCORE_THRESHOLD = float(os.getenv("DOC_SCORE_THRESHOLD", "0.5"))
+SESSION_HOURLY_TOKEN_LIMIT = int(os.getenv("SESSION_HOURLY_TOKEN_LIMIT", "100000"))
 rag_indexer = DirectoryRAGIndexer(DOC_DIRECTORY, doc_index_path=DOC_INDEX_PATH)
 
 
@@ -125,6 +127,19 @@ class ConversationListView(APIView):
         )
 
 
+def get_visitor_remaining_tokens(visitor: Visitor) -> int:
+    """
+    Returns the remaining tokens for the visitor based on the hourly limit.
+    """
+    total_tokens = (
+        ChatMessage.objects.filter(conversation__visitor=visitor).aggregate(
+            total_tokens=Sum("token_count")
+        )["total_tokens"]
+        or 0
+    )
+    return max(0, SESSION_HOURLY_TOKEN_LIMIT - total_tokens)
+
+
 class ChatAPIView(APIView):
     permission_classes = [AllowAny]
 
@@ -181,6 +196,11 @@ class ChatAPIView(APIView):
                     "role": msg.role,
                     "content": msg.content,
                     "timestamp": msg.timestamp,
+                    "sources": (
+                        json.loads(msg.referenced_documents)
+                        if msg.referenced_documents
+                        else []
+                    ),
                 }
                 for msg in messages
             ]
@@ -202,6 +222,13 @@ class ChatAPIView(APIView):
 
         conversation = self.find_conversation(visitor, conversation_id)
         return visitor, conversation, user_message
+
+    def validate_remaining_tokens(
+        self, message: str, visitor: Visitor, user_message_tokens: int
+    ) -> None:
+        remaining_tokens = get_visitor_remaining_tokens(visitor)
+        if user_message_tokens > remaining_tokens:
+            raise ChatMessageTooLongException(message, remaining_tokens)
 
     def post(self, request: Request) -> Response:
         """
@@ -238,14 +265,6 @@ class ChatAPIView(APIView):
         existing_conversation_length = messages.count()
         is_first_message = existing_conversation_length == 0
 
-        visitor_message = ChatMessage.objects.create(
-            conversation=conversation,
-            content=user_message,
-            role="visitor",
-            token_count=len(user_message.split()),
-            timestamp=user_message_timestamp,
-        )
-
         retriever = rag_indexer.get_vectorstore().as_retriever(
             search_type="similarity_score_threshold",
             search_kwargs={"score_threshold": DOC_SCORE_THRESHOLD},
@@ -256,23 +275,68 @@ class ChatAPIView(APIView):
             retriever,
         )
 
-        response, response_num_tokens, input_num_tokens = agent.chat(
-            visitor_message.content
+        user_message_tokens = agent.llm.get_num_tokens(user_message)
+        self.validate_remaining_tokens(user_message, visitor, user_message_tokens)
+
+        ChatMessage.objects.create(
+            conversation=conversation,
+            content=user_message,
+            role="visitor",
+            token_count=agent.llm.get_num_tokens(user_message),
+            timestamp=user_message_timestamp,
         )
+
+        is_malicious, safety_data = agent.detect_malicious_prompt(user_message)
+        if is_malicious:
+            return Response(
+                {
+                    "error": "Your message contains potentially harmful content.",
+                    "safety_data": str(safety_data),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            response, relevant_docs, response_num_tokens = agent.chat(user_message)
+        except Exception as e:
+            return Response(
+                {"error": "Failed to generate response.", "details": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         ChatMessage.objects.create(
             conversation=conversation,
             content=response["response"],
-            referenced_documents=json.dumps(response["sources"]),
+            referenced_documents=json.dumps(relevant_docs),
             role="assistant",
             token_count=response_num_tokens,
         )
-
-        visitor_message.token_count = input_num_tokens
-        visitor_message.save()
 
         if is_first_message:
             # If this is the first message, we can set a title for the conversation
             conversation.title = agent.name_chat()
             conversation.save()
 
-        return Response(response, status=status.HTTP_200_OK)
+        return Response(
+            {"response": response, "sources": relevant_docs}, status=status.HTTP_200_OK
+        )
+
+
+class VisitorUsageAPIView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request: Request) -> Response:
+        """
+        Returns the current visitor's usage statistics.
+        """
+        try:
+            visitor = get_visitor(request)
+        except Visitor.DoesNotExist:
+            return Response({"redirect": "/welcome"}, status=status.HTTP_302_FOUND)
+
+        return Response(
+            {
+                "hourly_limit": SESSION_HOURLY_TOKEN_LIMIT,
+                "remaining_tokens": get_visitor_remaining_tokens(visitor),
+            },
+            status=status.HTTP_200_OK,
+        )
