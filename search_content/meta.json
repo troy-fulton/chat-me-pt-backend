@@ -2,5 +2,9 @@
     {
         "filename": "resume.pdf",
         "description": "Resume of Troy Fulton, a data engineer / software engineer by trade with a background in Computer Science and Mathematics."
+    },
+    {
+        "filename": "photos/pups.jpg",
+        "description": "A photo of Troy Fulton's dogs that he shares with his husband Kayden (from left to right): Benji (a shepherd mix), Freckles (aussie doodle), and Charlie (husky)."
     }
 ]
