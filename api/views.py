@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from typing import Any
 
 from django.db.models import Sum
 from rest_framework import status
@@ -140,6 +141,18 @@ def get_visitor_remaining_tokens(visitor: Visitor) -> int:
     return max(0, SESSION_HOURLY_TOKEN_LIMIT - total_tokens)
 
 
+class MaliciousMessageException(Exception):
+    def __init__(self, message: str, safety_data: Any):
+        super().__init__(message)
+        self.safety_data = str(safety_data)
+
+    def __str__(self) -> str:
+        return (
+            f"MaliciousMessageException: {self.args[0]} -"
+            + f" Safety Data: {self.safety_data}"
+        )
+
+
 class ChatAPIView(APIView):
     permission_classes = [AllowAny]
 
@@ -223,20 +236,22 @@ class ChatAPIView(APIView):
         conversation = self.find_conversation(visitor, conversation_id)
         return visitor, conversation, user_message
 
-    def validate_remaining_tokens(
-        self, message: str, visitor: Visitor, user_message_tokens: int
+    def validate_message(
+        self, message: str, visitor: Visitor, user_message_tokens: int, agent: ChatAgent
     ) -> None:
         remaining_tokens = get_visitor_remaining_tokens(visitor)
         if user_message_tokens > remaining_tokens:
             raise ChatMessageTooLongException(message, remaining_tokens)
 
-    def post(self, request: Request) -> Response:
-        """
-        Accepts a POST request with a 'message' key.
-        Returns a dummy chatgpt-like response (echoes or returns a canned response).
-        """
+        is_malicious, safety_data = agent.detect_malicious_prompt(message)
+        if is_malicious:
+            raise MaliciousMessageException(message, safety_data)
+
+    def try_get_conversation(
+        self, request: Request
+    ) -> tuple[Visitor, Conversation, str] | Response:
         try:
-            visitor, conversation, user_message = self.get_post_parameters(request)
+            return self.get_post_parameters(request)
         except Visitor.DoesNotExist:
             return Response({"redirect": "/welcome"}, status=status.HTTP_302_FOUND)
         except Conversation.DoesNotExist:
@@ -257,6 +272,16 @@ class ChatAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+    def post(self, request: Request) -> Response:
+        """
+        Accepts a POST request with a 'message' key.
+        Returns a dummy chatgpt-like response (echoes or returns a canned response).
+        """
+        result = self.try_get_conversation(request)
+        if isinstance(result, Response):
+            return result
+        visitor, conversation, user_message = result
+
         user_message_timestamp = datetime.now()
         # Pull the whole conversation history
         messages = ChatMessage.objects.filter(conversation=conversation).order_by(
@@ -276,7 +301,25 @@ class ChatAPIView(APIView):
         )
 
         user_message_tokens = agent.llm.get_num_tokens(user_message)
-        self.validate_remaining_tokens(user_message, visitor, user_message_tokens)
+        try:
+            self.validate_message(user_message, visitor, user_message_tokens, agent)
+        except ChatMessageTooLongException as e:
+            return Response(
+                {
+                    "error": str(e),
+                    "message": "This message exceeds your token limit "
+                    + "for this session.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except MaliciousMessageException as e:
+            return Response(
+                {
+                    "error": str(e),
+                    "message": "Your message contains potentially harmful content.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         ChatMessage.objects.create(
             conversation=conversation,
@@ -286,15 +329,6 @@ class ChatAPIView(APIView):
             timestamp=user_message_timestamp,
         )
 
-        is_malicious, safety_data = agent.detect_malicious_prompt(user_message)
-        if is_malicious:
-            return Response(
-                {
-                    "error": "Your message contains potentially harmful content.",
-                    "safety_data": str(safety_data),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         try:
             response, relevant_docs, response_num_tokens = agent.chat(user_message)
         except Exception as e:
