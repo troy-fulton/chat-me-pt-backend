@@ -153,6 +153,18 @@ class MaliciousMessageException(Exception):
         )
 
 
+class TokensExceededException(Exception):
+    def __init__(self, message: str, remaining_tokens: int):
+        super().__init__(message)
+        self.remaining_tokens = remaining_tokens
+
+    def __str__(self) -> str:
+        return (
+            f"TokensExceededException: {self.args[0]} -"
+            + f" Remaining tokens: {self.remaining_tokens}"
+        )
+
+
 class ChatAPIView(APIView):
     permission_classes = [AllowAny]
 
@@ -241,7 +253,7 @@ class ChatAPIView(APIView):
     ) -> None:
         remaining_tokens = get_visitor_remaining_tokens(visitor)
         if user_message_tokens > remaining_tokens:
-            raise ChatMessageTooLongException(message, remaining_tokens)
+            raise TokensExceededException(message, remaining_tokens)
 
         is_malicious, safety_data = agent.detect_malicious_prompt(message)
         if is_malicious:
@@ -303,7 +315,7 @@ class ChatAPIView(APIView):
         user_message_tokens = agent.llm.get_num_tokens(user_message)
         try:
             self.validate_message(user_message, visitor, user_message_tokens, agent)
-        except ChatMessageTooLongException as e:
+        except TokensExceededException as e:
             return Response(
                 {
                     "error": str(e),
