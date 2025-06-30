@@ -235,6 +235,7 @@ to help you assist them better:
         chat_history = self.generate_chat_history()
         chat_prompt = ChatPromptTemplate.from_messages(chat_history)
         # Retrieve the most relevant document for the visitor_message
+        print("Retrieving relevant documents...")
         relevant_docs = self.retriever.get_relevant_documents(visitor_message)
         relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
         context_block = (
@@ -242,6 +243,7 @@ to help you assist them better:
             if relevant_docs
             else "No documents found."
         )
+        print("Defining RAG chain and invoking...")
         rag_chain: RunnableSerializable[dict[str, str], str] = (
             chat_prompt | self.llm | StrOutputParser()
         )
@@ -279,12 +281,14 @@ to help you assist them better:
         """
         try:
             # Load the pipeline (you may want to cache this in production)
+            print("Loading Prompt-Guard-86M pipeline...")
             classifier = pipeline(
                 "text-classification",
                 model="meta-llama/Llama-Prompt-Guard-2-86M",
                 top_k=None,
                 token=HUGGINGFACE_HUB_TOKEN,
             )
+            print("Classifying prompt for malicious content...")
             result = classifier(prompt)
             # result is a list of dicts, one per label
             if (
@@ -304,6 +308,7 @@ to help you assist them better:
             return malicious_score >= 0.9, first_result
         except Exception:
             # If the model fails to load or classify, assume it's not malicious
+            print("Failed to classify prompt as malicious or benign.")
             return False, {"error": "Failed to classify prompt"}
 
 

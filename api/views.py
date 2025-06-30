@@ -263,6 +263,7 @@ class ChatAPIView(APIView):
     def try_get_conversation(
         self, request: Request
     ) -> tuple[Visitor, Conversation, str] | Response:
+        print("Looking up conversation...")
         try:
             return self.get_post_parameters(request)
         except Visitor.DoesNotExist:
@@ -303,16 +304,19 @@ class ChatAPIView(APIView):
         existing_conversation_length = messages.count()
         is_first_message = existing_conversation_length == 0
 
+        print("Getting vector store...")
         retriever = rag_indexer.get_vectorstore().as_retriever(
             search_type="similarity_score_threshold",
             search_kwargs={"score_threshold": DOC_SCORE_THRESHOLD},
         )
+        print("Creating chat agent...")
         agent = ChatAgent(
             ChatAgentData(messages=list(messages), max_tokens_to_sample=1024),
             visitor,
             retriever,
         )
 
+        print("Getting metadata from visitor message and validating...")
         user_message_tokens = agent.llm.get_num_tokens(user_message)
         try:
             self.validate_message(user_message, visitor, user_message_tokens, agent)
@@ -334,6 +338,7 @@ class ChatAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        print("Creating visitor chat message...")
         ChatMessage.objects.create(
             conversation=conversation,
             content=user_message,
@@ -343,6 +348,7 @@ class ChatAPIView(APIView):
         )
 
         try:
+            print("Generating response from agent...")
             response, relevant_docs, response_num_tokens = agent.chat(user_message)
         except Exception as e:
             return Response(
@@ -350,6 +356,7 @@ class ChatAPIView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        print("Response generated, saving assistant chat message...")
         ChatMessage.objects.create(
             conversation=conversation,
             content=response,
@@ -359,6 +366,7 @@ class ChatAPIView(APIView):
         )
 
         if is_first_message:
+            print("Setting conversation title...")
             # If this is the first message, we can set a title for the conversation
             conversation.title = agent.name_chat(user_message)
             conversation.save()
