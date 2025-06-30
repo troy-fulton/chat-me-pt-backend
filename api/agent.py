@@ -236,7 +236,7 @@ to help you assist them better:
         chat_prompt = ChatPromptTemplate.from_messages(chat_history)
         # Retrieve the most relevant document for the visitor_message
         print("Retrieving relevant documents...")
-        relevant_docs = self.retriever.get_relevant_documents(visitor_message)
+        relevant_docs = self.retriever.invoke(visitor_message)
         relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
         context_block = (
             self.format_documents(relevant_docs)

@@ -1,9 +1,10 @@
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from django.db.models import Sum
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -83,7 +84,7 @@ def get_conversation(visitor: Visitor, end_previous: bool = False) -> Conversati
     if not conversation:
         conversation = Conversation.objects.create(visitor=visitor)
     elif end_previous:
-        conversation.ended_at = datetime.now()
+        conversation.ended_at = timezone.now()
         conversation.save()
         conversation = Conversation.objects.create(visitor=visitor)
     return conversation
@@ -132,7 +133,7 @@ def get_visitor_remaining_tokens(visitor: Visitor) -> int:
     """
     Returns the remaining tokens for the visitor based on the hourly limit.
     """
-    one_hour_ago = datetime.now() - timedelta(hours=1)
+    one_hour_ago = timezone.now() - timedelta(hours=1)
     total_tokens = (
         ChatMessage.objects.filter(
             conversation__visitor=visitor, timestamp__gte=one_hour_ago
@@ -296,7 +297,7 @@ class ChatAPIView(APIView):
             return result
         visitor, conversation, user_message = result
 
-        user_message_timestamp = datetime.now()
+        user_message_timestamp = timezone.now()
         # Pull the whole conversation history
         messages = ChatMessage.objects.filter(conversation=conversation).order_by(
             "-timestamp"
