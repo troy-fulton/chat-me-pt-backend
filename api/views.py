@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db.models import Sum
@@ -132,10 +132,11 @@ def get_visitor_remaining_tokens(visitor: Visitor) -> int:
     """
     Returns the remaining tokens for the visitor based on the hourly limit.
     """
+    one_hour_ago = datetime.now() - timedelta(hours=1)
     total_tokens = (
-        ChatMessage.objects.filter(conversation__visitor=visitor).aggregate(
-            total_tokens=Sum("token_count")
-        )["total_tokens"]
+        ChatMessage.objects.filter(
+            conversation__visitor=visitor, timestamp__gte=one_hour_ago
+        ).aggregate(total_tokens=Sum("token_count"))["total_tokens"]
         or 0
     )
     return max(0, SESSION_HOURLY_TOKEN_LIMIT - total_tokens)
@@ -359,7 +360,7 @@ class ChatAPIView(APIView):
 
         if is_first_message:
             # If this is the first message, we can set a title for the conversation
-            conversation.title = agent.name_chat()
+            conversation.title = agent.name_chat(user_message)
             conversation.save()
 
         return Response(

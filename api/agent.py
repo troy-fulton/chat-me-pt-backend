@@ -22,6 +22,7 @@ from .models import ChatMessage, Visitor
 
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 MODEL_NAME = os.environ["ANTHROPIC_MODEL_NAME"]
+HUGGINGFACE_HUB_TOKEN = os.environ["HUGGINGFACE_HUB_TOKEN"]
 # Maximum length of a chat message to use for the title prompt
 MAX_TITLE_MESSAGE_LENGTH = int(os.getenv("MAX_TITLE_MESSAGE_LENGTH", "100"))
 
@@ -255,10 +256,9 @@ to help you assist them better:
             vector_document = visitor_message
         else:
             vector_document = (
-                f'I am interested in :"{self.visitor.interests}"'
-                + f" and I want to know: {visitor_message}"
+                f'"{self.visitor.interests}"' + f' AND "{visitor_message}"'
             )
-        relevant_docs = self.retriever.get_relevant_documents(visitor_message)
+        relevant_docs = self.retriever.get_relevant_documents(vector_document)
         relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
         context_block = (
             self.format_documents(relevant_docs)
@@ -286,21 +286,12 @@ to help you assist them better:
             response_token_count,
         )
 
-    def name_chat(self) -> str:
+    def name_chat(self, first_message: str) -> str:
         """
         Returns a name for the chat based on the first visitor message.
         """
-        if not self.chat_history_data.messages:
-            return "Unnamed Chat"
-
-        visitor_messages = [
-            msg for msg in self.chat_history_data.messages if msg.role == "visitor"
-        ]
-        if not visitor_messages:
-            return "Unnamed Chat"
-        first_message = visitor_messages[0]
-        first_message_content = first_message.content[:MAX_TITLE_MESSAGE_LENGTH]
-        if len(first_message.content) > MAX_TITLE_MESSAGE_LENGTH:
+        first_message_content = first_message[:MAX_TITLE_MESSAGE_LENGTH]
+        if len(first_message) > MAX_TITLE_MESSAGE_LENGTH:
             first_message_content += "..."
         prompt = (
             "Suggest a short (at most three words), descriptive, and slightly "
@@ -319,17 +310,27 @@ to help you assist them better:
             # Load the pipeline (you may want to cache this in production)
             classifier = pipeline(
                 "text-classification",
-                model="meta-llama/Prompt-Guard-86M",
+                model="meta-llama/Llama-Prompt-Guard-2-86M",
                 top_k=None,
+                token=HUGGINGFACE_HUB_TOKEN,
             )
             result = classifier(prompt)
             # result is a list of dicts, one per label
-            is_malicious = any(
-                label["score"] >= 0.9
-                for label in result[0]
-                if label["label"] != "benign"
-            )
-            return is_malicious, result[0]
+            if (
+                not result
+                or not isinstance(result, list)
+                or not isinstance(result[0], list)
+            ):
+                return False, {"error": "Invalid response from classifier"}
+            first_result = result[0]
+            malicious_score = 0.0
+            for label_result in first_result:
+                if not isinstance(label_result, dict):
+                    continue
+                if label_result.get("label") == "LABEL_1":
+                    malicious_score = label_result.get("score", 0.0)
+                    break
+            return malicious_score >= 0.9, first_result
         except Exception:
             # If the model fails to load or classify, assume it's not malicious
             return False, {"error": "Failed to classify prompt"}
