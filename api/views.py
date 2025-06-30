@@ -94,6 +94,7 @@ class ConversationListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request: Request) -> Response:
+        print("Fetching conversations for visitor...")
         try:
             visitor = get_visitor(request)
         except Visitor.DoesNotExist:
@@ -115,6 +116,7 @@ class ConversationListView(APIView):
         """
         Starts a new conversation for the current visitor
         """
+        print("Starting a new conversation for visitor...")
         try:
             visitor = get_visitor(request)
         except Visitor.DoesNotExist:
@@ -191,6 +193,7 @@ class ChatAPIView(APIView):
         If a conversation ID is provided as a query parameter, it loads that
         conversation instead.
         """
+        print("Fetching chat history for visitor...")
         try:
             visitor = get_visitor(request)
         except Visitor.DoesNotExist:
@@ -384,6 +387,7 @@ class VisitorUsageAPIView(APIView):
         """
         Returns the current visitor's usage statistics.
         """
+        print("Fetching visitor usage statistics...")
         try:
             visitor = get_visitor(request)
         except Visitor.DoesNotExist:
