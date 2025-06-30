@@ -352,7 +352,7 @@ class ChatAPIView(APIView):
 
         ChatMessage.objects.create(
             conversation=conversation,
-            content=response["response"],
+            content=response,
             referenced_documents=json.dumps(relevant_docs),
             role="assistant",
             token_count=response_num_tokens,

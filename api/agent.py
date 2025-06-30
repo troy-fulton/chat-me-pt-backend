@@ -39,10 +39,6 @@ class AIChat(TypedDict):
     max_tokens: int
 
 
-class AIChatResponse(TypedDict):
-    response: str
-
-
 class ChatException(Exception):
     """Base class for chat-related exceptions."""
 
@@ -76,14 +72,6 @@ class ChatAgentData:
             json.dumps({"message": msg_content}).replace("{", "{{").replace("}", "}}")
         )
 
-    def sanitize_ai_message(self, msg: ChatMessage) -> str:
-        """Sanitize message to ensure it is safe for processing."""
-        return (
-            json.dumps({"response": msg.content, "sources": msg.referenced_documents})
-            .replace("{", "{{")
-            .replace("}", "}}")
-        )
-
     def get_ai_messages(self) -> list[BaseMessage]:
         lc_messages: list[BaseMessage] = []
         for msg in self.messages:
@@ -107,7 +95,7 @@ class ChatAgentData:
                 safe_msg_content = self.sanitize_visitor_message(msg_content)
                 lc_messages.append(("human", safe_msg_content))
             elif msg.role == "assistant":
-                lc_messages.append(("ai", self.sanitize_ai_message(msg)))
+                lc_messages.append(("ai", msg_content))
         return lc_messages
 
     def as_ai_chat(self) -> AIChat:
@@ -144,7 +132,7 @@ class ChatAgent:
     def get_examples(self) -> str:
         example_prompt = PromptTemplate.from_template(
             """User: {{{{{{{{ "message": "{user_message}" }}}}}}}}
-Response: {{{{{{{{ "response": {response} }}}}}}}}"""
+Response: {response}"""
         )
 
         prompt = FewShotPromptTemplate(
@@ -190,11 +178,7 @@ User messages will be formatted as a JSON objects like this:
 
 `{{"message": "User message here"}}`
 
-Respond with a single line of strict, valid JSONL with no trailing newline. Do
-not wrap the output in quotes. Do not format the response as Markdown or natural
-language:
-
-`{{"response": "Your response"}}`
+You will respond in plain text without any additional formatting.
         """
         if (
             self.visitor.name != ""
@@ -242,7 +226,7 @@ to help you assist them better:
         chat_history.append(("human", "{user_input}"))
         return chat_history
 
-    def chat(self, visitor_message: str) -> tuple[AIChatResponse, list[str], int]:
+    def chat(self, visitor_message: str) -> tuple[str, list[str], int]:
         """
         Process the chat messages and return the assistant's reply.
         This method expects the chat_data to contain messages in LangChain format.
@@ -251,14 +235,7 @@ to help you assist them better:
         chat_history = self.generate_chat_history()
         chat_prompt = ChatPromptTemplate.from_messages(chat_history)
         # Retrieve the most relevant document for the visitor_message
-        vector_document = self.visitor.interests
-        if vector_document is None:
-            vector_document = visitor_message
-        else:
-            vector_document = (
-                f'"{self.visitor.interests}"' + f' AND "{visitor_message}"'
-            )
-        relevant_docs = self.retriever.get_relevant_documents(vector_document)
+        relevant_docs = self.retriever.get_relevant_documents(visitor_message)
         relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
         context_block = (
             self.format_documents(relevant_docs)
@@ -274,14 +251,8 @@ to help you assist them better:
             max_output_tokens=self.chat_history_data.max_tokens_to_sample,
         )
         response_token_count = self.llm.get_num_tokens(rag_response)
-        try:
-            chat_response: AIChatResponse = json.loads(
-                rag_response.encode("unicode_escape").decode("utf-8")
-            )
-        except json.JSONDecodeError:
-            raise ChatException(f"Failed to parse LLM response as JSON: {rag_response}")
         return (
-            chat_response,
+            rag_response,
             [doc.metadata["file"] for doc in relevant_docs],
             response_token_count,
         )
