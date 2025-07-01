@@ -7,6 +7,10 @@ examples = [
         "user_message": "Does Troy have any experience with big data?",
         "response": 'According to Troy\'s resume, he developed "Big Data infrastructure using Kubernetes" while working at Aspen Insights from June 2020 - Present.',  # noqa: E501
     },
+    {
+        "user_message": "Does Troy have know how to express his feelings?",
+        "response": "Unfortunately, I don't have any relevant information about that in the documents available to me.",  # noqa: E501
+    },
 ]
 
 examples_json = [
