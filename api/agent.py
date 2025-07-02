@@ -203,7 +203,7 @@ to help you assist them better:
 2. What, about Troy, are you interested in? "{self.visitor.interests}"
 3. What organization do you represent, if any? "{self.visitor.company}"
             """
-        system_message_template += "\n\n" + self.get_examples()
+        # system_message_template += "\n\n" + self.get_examples()
         system_message_template = system_message_template.strip()
         return system_message_template
 
