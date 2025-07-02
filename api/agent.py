@@ -10,13 +10,13 @@ from langchain_core.documents import Document
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables import (
     RunnableSerializable,
 )
 from pydantic import SecretStr
 from transformers.pipelines import pipeline
 
+from .document_indexer import DirectoryRAGIndexer
 from .examples import examples_json
 from .models import ChatMessage, Visitor
 
@@ -25,6 +25,15 @@ MODEL_NAME = os.environ["ANTHROPIC_MODEL_NAME"]
 HUGGINGFACE_HUB_TOKEN = os.environ["HUGGINGFACE_HUB_TOKEN"]
 # Maximum length of a chat message to use for the title prompt
 MAX_TITLE_MESSAGE_LENGTH = int(os.getenv("MAX_TITLE_MESSAGE_LENGTH", "100"))
+DOC_DIRECTORY = os.environ["DOCUMENTS_DIRECTORY"]
+DOC_INDEX_PATH = os.environ["DOCUMENT_INDEX_PATH"]
+DOC_SCORE_THRESHOLD = float(os.getenv("DOC_SCORE_THRESHOLD", "0.6"))
+rag_indexer = DirectoryRAGIndexer(DOC_DIRECTORY, doc_index_path=DOC_INDEX_PATH)
+print("Initializing retriever...")
+retriever = rag_indexer.get_vectorstore().as_retriever(
+    search_type="similarity_score_threshold",
+    search_kwargs={"score_threshold": DOC_SCORE_THRESHOLD},
+)
 
 
 class ChatAgentMessage(TypedDict):
@@ -111,11 +120,8 @@ class ChatAgent:
     llm: ChatAnthropic
     chat_start: bool
     visitor: Visitor
-    retriever: BaseRetriever
 
-    def __init__(
-        self, chat_data: ChatAgentData, visitor: Visitor, retriever: BaseRetriever
-    ) -> None:
+    def __init__(self, chat_data: ChatAgentData, visitor: Visitor) -> None:
         self.chat_history_data = chat_data
         self.llm = ChatAnthropic(
             api_key=SecretStr(ANTHROPIC_API_KEY),
@@ -127,7 +133,6 @@ class ChatAgent:
         )
         self.chat_start = len(chat_data.messages) == 0
         self.visitor = visitor
-        self.retriever = retriever
 
     def get_examples(self) -> str:
         example_prompt = PromptTemplate.from_template(
@@ -241,7 +246,7 @@ to help you assist them better:
         chat_prompt = ChatPromptTemplate.from_messages(chat_history)
         # Retrieve the most relevant document for the visitor_message
         print("Retrieving relevant documents...")
-        relevant_docs = self.retriever.invoke(visitor_message)
+        relevant_docs = retriever.invoke(visitor_message)
         relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
         context_block = (
             self.format_documents(relevant_docs)

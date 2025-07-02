@@ -6,5 +6,53 @@
     {
         "filename": "photos/pups.jpg",
         "description": "A photo of Troy Fulton's dogs that he shares with his husband Kayden (from left to right): Benji (a shepherd mix), Freckles (aussie doodle), and Charlie (husky)."
+    },
+    {
+        "filename": "TAMU_research/Active-Routing Presentation.pdf",
+        "description": "Troy's presentation on his research on Active Routing in 3D memory cubes as part of the Undergraduate Research Scholars Program at Texas A&M University in 2019-2020. This poster was printed and hung at a University-wide event, where Troy presented his findings to satisfy his University Honors obligations."
+    },
+    {
+        "filename": "TAMU_research/Proposal.pdf",
+        "description": "Troy's proposal for his research on Active Routing in 3D memory cubes as part of the Undergraduate Research Scholars Program at Texas A&M University in 2019-2020. This document outlines the objectives, methodology, and expected outcomes of his research.",
+        "semantic": true
+    },
+    {
+        "filename": "TAMU_ESET/ESET_369_Term_Project.pdf",
+        "description": "For Troy's ESET Minor, he completed a term project that involved creating a web-hosted game of pong using a serially-communicated potentiometer with a TI Mixed-Signal Microcontroller (MCU) and an Arduino UNO.",
+        "semantic": true
+    },
+    {
+        "filename": "photos/PUCP.jpg",
+        "description": "A photo from Troy's visit to Pontificia Universidad Católica del Perú (PUCP) in Lima, Peru. He studied abroad there in the summer of 2019 taking an Engineering Ethics course while traveling around the country."
+    },
+    {
+        "filename": "TAMU_Reverse_SE/CTF.pdf",
+        "description": "Troy's presentation on Capture The Flag (CTF) competitions from a fun software reverse engineering class.",
+        "semantic": true
+    },
+    {
+        "filename": "TAMU_Reverse_SE/Windows Heap Exploits.pptx",
+        "description": "Troy's presentation on Windows Heap Exploits for legacy systems from a fun software reverse engineering class.",
+        "semantic": true
+    },
+    {
+        "filename": "Misc/SpaceCRAFT_World_Design.pptx",
+        "description": "Troy's presentation on SpaceCRAFT \"World Design.\" This team project was aimed at developing VR simulations for data-driven terrains, including the moon and the planetary bodies in the Solar System. It was presented at the 2017 Texas A&M Engineering Project Showcase.",
+        "semantic": true
+    },
+    {
+        "filename": "Computer_Science/MovieMash.pdf",
+        "description": "Troy's technical report on MovieMash, a web application that allows users to schedule a movie marathon based on matched terms and structured metadata in a search engine (Elasticsearch) based on iMDb data.",
+        "semantic": true
+    },
+    {
+        "filename": "photos/me.jpg",
+        "description": "A photo of Troy Fulton.",
+        "semantic": true
+    },
+    {
+        "filename": "photos/family.JPG",
+        "description": "A photo of Troy Fulton's family, including his husband Kayden, and their dogs Benji, Freckles, and Charlie.",
+        "semantic": true
     }
 ]

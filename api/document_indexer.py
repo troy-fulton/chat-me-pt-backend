@@ -16,6 +16,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 class DocumentMetadata(TypedDict):
     filename: str
     description: str
+    semantic: bool
 
 
 class DirectoryRAGIndexer:
@@ -52,13 +53,14 @@ class DirectoryRAGIndexer:
             filepath = self.directory / document["filename"]
 
             loaded_docs = list()
-            if filepath.suffix.lower() == ".pdf":
+            semantic = document.get("semantic", False)
+            if not semantic and filepath.suffix.lower() == ".pdf":
                 print(f"Loading PDF: {filepath}")
                 loaded_docs = PyPDFLoader(str(filepath)).load()
-            elif filepath.suffix.lower() in [".txt", ".md"]:
+            elif not semantic and filepath.suffix.lower() in [".txt", ".md"]:
                 print(f"Loading text file: {filepath}")
                 loaded_docs = TextLoader(str(filepath)).load()
-            elif filepath.suffix.lower() == ".pptx":
+            elif not semantic and filepath.suffix.lower() == ".pptx":
                 print(f"Loading PowerPoint: {filepath}")
                 loaded_docs = UnstructuredPowerPointLoader(str(filepath)).load()
             else:

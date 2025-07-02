@@ -16,16 +16,11 @@ from .agent import (
     ChatAgentData,
     ChatMessageTooLongException,
 )
-from .document_indexer import DirectoryRAGIndexer
 from .models import ChatMessage, Conversation, Visitor
 
 MAX_MESSAGE_LENGTH = int(os.getenv("MAX_MESSAGE_LENGTH", "1000"))
 MAX_MESSAGE_HISTORY = int(os.getenv("MAX_MESSAGE_HISTORY", "4"))
-DOC_DIRECTORY = os.environ["DOCUMENTS_DIRECTORY"]
-DOC_INDEX_PATH = os.environ["DOCUMENT_INDEX_PATH"]
-DOC_SCORE_THRESHOLD = float(os.getenv("DOC_SCORE_THRESHOLD", "0.5"))
 SESSION_HOURLY_TOKEN_LIMIT = int(os.getenv("SESSION_HOURLY_TOKEN_LIMIT", "100000"))
-rag_indexer = DirectoryRAGIndexer(DOC_DIRECTORY, doc_index_path=DOC_INDEX_PATH)
 
 
 class WelcomeView(APIView):
@@ -308,16 +303,10 @@ class ChatAPIView(APIView):
         existing_conversation_length = messages.count()
         is_first_message = existing_conversation_length == 0
 
-        print("Getting vector store...")
-        retriever = rag_indexer.get_vectorstore().as_retriever(
-            search_type="similarity_score_threshold",
-            search_kwargs={"score_threshold": DOC_SCORE_THRESHOLD},
-        )
         print("Creating chat agent...")
         agent = ChatAgent(
             ChatAgentData(messages=list(messages), max_tokens_to_sample=1024),
             visitor,
-            retriever,
         )
 
         print("Getting metadata from visitor message and validating...")
