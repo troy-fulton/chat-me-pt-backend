@@ -342,7 +342,7 @@ class ChatAPIView(APIView):
 
         try:
             print("Generating response from agent...")
-            response, relevant_docs, response_num_tokens = agent.chat(user_message)
+            chat_response = agent.chat(user_message)
         except Exception as e:
             return Response(
                 {"error": "Failed to generate response.", "details": str(e)},
@@ -352,10 +352,10 @@ class ChatAPIView(APIView):
         print("Response generated, saving assistant chat message...")
         ChatMessage.objects.create(
             conversation=conversation,
-            content=response,
-            referenced_documents=json.dumps(relevant_docs),
+            content=chat_response["response"],
+            referenced_documents=json.dumps(chat_response["relevant_documents"]),
             role="assistant",
-            token_count=response_num_tokens,
+            token_count=chat_response["tokens_used"],
         )
 
         if is_first_message:
@@ -365,7 +365,11 @@ class ChatAPIView(APIView):
             conversation.save()
 
         return Response(
-            {"response": response, "sources": relevant_docs}, status=status.HTTP_200_OK
+            {
+                "response": chat_response["response"],
+                "sources": chat_response["relevant_documents"],
+            },
+            status=status.HTTP_200_OK,
         )
 
 

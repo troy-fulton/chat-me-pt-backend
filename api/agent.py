@@ -1,10 +1,9 @@
-import json
 import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, TypedDict
 
-from langchain.prompts import ChatPromptTemplate, FewShotPromptTemplate, PromptTemplate
+from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_anthropic import ChatAnthropic
 from langchain_core.documents import Document
 from langchain_core.language_models import LanguageModelInput
@@ -17,7 +16,6 @@ from pydantic import SecretStr
 from transformers.pipelines import pipeline
 
 from .document_indexer import DirectoryRAGIndexer
-from .examples import examples_json
 from .models import ChatMessage, Visitor
 
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
@@ -70,16 +68,16 @@ class ChatMessageTooLongException(ChatException):
         self.max_length = max_length
 
 
+class ChatResponse(TypedDict):
+    response: str
+    relevant_documents: list[str]
+    tokens_used: int
+
+
 @dataclass
 class ChatAgentData:
     messages: list[ChatMessage]
     max_tokens_to_sample: int = 1024
-
-    def sanitize_visitor_message(self, msg_content: str) -> str:
-        """Sanitize message to ensure it is safe for processing."""
-        return (
-            json.dumps({"message": msg_content}).replace("{", "{{").replace("}", "}}")
-        )
 
     def get_ai_messages(self) -> list[BaseMessage]:
         lc_messages: list[BaseMessage] = []
@@ -88,8 +86,7 @@ class ChatAgentData:
             if msg.role == "system":
                 lc_messages.append(SystemMessage(content=msg_content))
             if msg.role == "visitor":
-                safe_msg_content = self.sanitize_visitor_message(msg_content)
-                lc_messages.append(HumanMessage(content=safe_msg_content))
+                lc_messages.append(HumanMessage(content=msg_content))
             elif msg.role == "assistant":
                 lc_messages.append(AIMessage(content=msg_content))
         return lc_messages
@@ -101,8 +98,7 @@ class ChatAgentData:
             if msg.role == "system":
                 lc_messages.append(("system", msg_content))
             if msg.role == "visitor":
-                safe_msg_content = self.sanitize_visitor_message(msg_content)
-                lc_messages.append(("human", safe_msg_content))
+                lc_messages.append(("human", msg_content))
             elif msg.role == "assistant":
                 lc_messages.append(("ai", msg_content))
         return lc_messages
@@ -118,7 +114,6 @@ class ChatAgentData:
 class ChatAgent:
     chat_history_data: ChatAgentData
     llm: ChatAnthropic
-    chat_start: bool
     visitor: Visitor
 
     def __init__(self, chat_data: ChatAgentData, visitor: Visitor) -> None:
@@ -131,34 +126,19 @@ class ChatAgent:
             max_tokens_to_sample=chat_data.max_tokens_to_sample,
             temperature=0,
         )
-        self.chat_start = len(chat_data.messages) == 0
         self.visitor = visitor
-
-    def get_examples(self) -> str:
-        example_prompt = PromptTemplate.from_template(
-            """User: {{{{{{{{ "message": "{user_message}" }}}}}}}}
-Response: {response}"""
-        )
-
-        prompt = FewShotPromptTemplate(
-            examples=examples_json,
-            example_prompt=example_prompt,
-            prefix="Here are some examples of how to respond to questions:",
-            suffix="Here is the current conversation history:\n\n",
-        )
-        return prompt.invoke({}).to_string()
 
     def get_system_message_template(self) -> str:
         system_message_template = """
-You are an assistant designed to answer questions about Troy Fulton's
+You are an AI assistant designed to answer questions about Troy Fulton's
 ePortfolio. The user has asked a question, and based on the question, the
-following documents from Troy's ePortfolio are relevant:
+following subset of documents from Troy's ePortfolio are the most relevant:
 
 {context_block}
 
 If no documents are available, it doesn't mean there are no documents in Troy's
-ePortfolio. It means that the user has not prompted you with anything relevant
-to the documents in Troy's ePortfolio.
+ePortfolio. It means that a keyword search using the user's query has not
+resulted in any relevant documents.
 
 You will chat with a user asking questions about Troy Fulton. Respond to
 questions in a professionally positive tone, and limit your answers to those
@@ -184,26 +164,18 @@ supported by any documents above. When considering the question:
     link to a gif of Steven Colbert doing a slow clap and nothing else at
     all.
 
-User messages will be formatted as a JSON objects like this:
-
-`{{"message": "User message here"}}`
-
-You will respond in plain text without any additional formatting.
-        """
+"""
         if (
             self.visitor.name != ""
             or self.visitor.interests != ""
             or self.visitor.company != ""
         ):
-            system_message_template += f"""
-
-Here are the user's responses to some get-to-know-you questions
-to help you assist them better:
+            system_message_template += f"""Here are the user's responses to some
+get-to-know-you questions to help you assist them better:
 1. What's your name? "{self.visitor.name}"
 2. What, about Troy, are you interested in? "{self.visitor.interests}"
 3. What organization do you represent, if any? "{self.visitor.company}"
             """
-        # system_message_template += "\n\n" + self.get_examples()
         system_message_template = system_message_template.strip()
         return system_message_template
 
@@ -236,38 +208,89 @@ to help you assist them better:
         chat_history.append(("human", "{user_input}"))
         return chat_history
 
-    def chat(self, visitor_message: str) -> tuple[str, list[str], int]:
+    def get_doc_retrieval_prompt_template(self) -> str:
+        return """You are an AI assistant that rewrites user messages to
+retrieve relevant documents from a knowledge base. The user will prompt
+you for information about Troy Fulton's ePortfolio, and you will rewrite
+the user's message as a query to an FAISS vector store full of documents
+related to Troy's ePortfolio. The rewritten query should be concise,
+relevant, and keyword-focused. Since the documents are all related to Troy, do
+not include any personal information about Troy in the query.
+
+For example, if the user asks "What is Troy's favorite color?", you should
+rewrite the query to "favorite color". If the user asks "Does Troy have any
+experience with Python?", you should rewrite the query to "Python experience".
+
+Reply only with the rewritten query, without any additional text or
+formatting. Do not include any context or instructions in your reply.
+
+The user message is: {user_input}
+"""
+
+    def get_doc_retrieval_query(self, user_input: str) -> tuple[str, int]:
+        """
+        Generate a prompt for document retrieval based on the user input.
+        This prompt is used to rewrite the user message into a query for
+        the FAISS vector store.
+        """
+        doc_retrieval_prompt = self.get_doc_retrieval_prompt_template()
+        num_tokens = self.llm.get_num_tokens(
+            doc_retrieval_prompt.format(user_input=user_input)
+        )
+        chain: RunnableSerializable[dict[str, str], str] = (
+            PromptTemplate.from_template(doc_retrieval_prompt)
+            | self.llm
+            | StrOutputParser()
+        )
+        # Invoke the chain with the user input to get the rewritten query
+        rewritten_query = chain.invoke({"user_input": user_input})
+        num_tokens += self.llm.get_num_tokens(rewritten_query)
+        return rewritten_query.strip(), num_tokens
+
+    def chat(self, visitor_message: str) -> ChatResponse:
         """
         Process the chat messages and return the assistant's reply.
         This method expects the chat_data to contain messages in LangChain format.
         It uses the LLM to generate a response based on the provided messages.
+
+        NOTE: This method assumes that visitor_message is already validated as
+        safe from malicious content, such as prompt injection.
         """
         chat_history = self.generate_chat_history()
         chat_prompt = ChatPromptTemplate.from_messages(chat_history)
         # Retrieve the most relevant document for the visitor_message
+        print("Generating query for document retrieval...")
+        doc_query, num_tokens = self.get_doc_retrieval_query(visitor_message)
         print("Retrieving relevant documents...")
-        relevant_docs = retriever.invoke(visitor_message)
+        relevant_docs = retriever.invoke(doc_query)
         relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
         context_block = (
             self.format_documents(relevant_docs)
             if relevant_docs
             else "No documents found."
         )
-        print("Defining RAG chain and invoking...")
-        rag_chain: RunnableSerializable[dict[str, str], str] = (
-            chat_prompt | self.llm | StrOutputParser()
+        llm_prompt = chat_prompt.format(
+            user_input=visitor_message, context_block=context_block
         )
-        # Convert messages to LangChain format
-        rag_response = rag_chain.invoke(
-            {"user_input": visitor_message, "context_block": context_block},
-            max_output_tokens=self.chat_history_data.max_tokens_to_sample,
+        num_tokens += self.llm.get_num_tokens(llm_prompt)
+        print("Invoking the LLM...")
+        rag_response = self.llm.invoke(
+            llm_prompt,
+            max_tokens=self.chat_history_data.max_tokens_to_sample,
         )
-        response_token_count = self.llm.get_num_tokens(rag_response)
-        return (
-            rag_response,
-            [doc.metadata["file"] for doc in relevant_docs],
-            response_token_count,
-        )
+        # Ensure the response is a string (handles both message objects and
+        # plain strings)
+        response_string = rag_response.content
+        if not isinstance(response_string, str):
+            raise TypeError(
+                f"Expected response content to be a string, got {type(response_string)}"
+            )
+        num_tokens += self.llm.get_num_tokens(response_string)
+        return {
+            "response": response_string,
+            "relevant_documents": [doc.metadata["file"] for doc in relevant_docs],
+            "tokens_used": num_tokens,
+        }
 
     def name_chat(self, first_message: str) -> str:
         """

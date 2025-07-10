@@ -30,7 +30,7 @@ class DirectoryRAGIndexer:
         self.doc_index_path = doc_index_path
         self.directory = Path(doc_directory)
         self.embeddings: Embeddings = embeddings or HuggingFaceEmbeddings(
-            model_name="BAAI/bge-small-en"
+            model_name="BAAI/bge-base-en-v1.5"
         )
         self.meta_path = self.directory / "meta.json"
         if not self.directory.exists() or not self.directory.is_dir():
