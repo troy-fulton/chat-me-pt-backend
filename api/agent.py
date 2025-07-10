@@ -14,6 +14,7 @@ from langchain_core.runnables import (
 )
 from pydantic import SecretStr
 from transformers.pipelines import pipeline
+from whoosh.qparser import FuzzyTermPlugin, MultifieldParser, PrefixPlugin
 
 from .document_indexer import DirectoryRAGIndexer
 from .models import ChatMessage, Visitor
@@ -27,11 +28,11 @@ DOC_DIRECTORY = os.environ["DOCUMENTS_DIRECTORY"]
 DOC_INDEX_PATH = os.environ["DOCUMENT_INDEX_PATH"]
 DOC_SCORE_THRESHOLD = float(os.getenv("DOC_SCORE_THRESHOLD", "0.6"))
 rag_indexer = DirectoryRAGIndexer(DOC_DIRECTORY, doc_index_path=DOC_INDEX_PATH)
-print("Initializing retriever...")
-retriever = rag_indexer.get_vectorstore().as_retriever(
-    search_type="similarity_score_threshold",
-    search_kwargs={"score_threshold": DOC_SCORE_THRESHOLD},
-)
+
+qp = MultifieldParser(["content", "description"], schema=rag_indexer.whoosh_schema())
+qp.add_plugin(FuzzyTermPlugin())
+qp.add_plugin(PrefixPlugin())
+document_index = rag_indexer.get_whoosh_index()
 
 
 class ChatAgentMessage(TypedDict):
@@ -136,6 +137,8 @@ following subset of documents from Troy's ePortfolio are the most relevant:
 
 {context_block}
 
+The query used to retrieve these documents: "{document_query}"
+
 If no documents are available, it doesn't mean there are no documents in Troy's
 ePortfolio. It means that a keyword search using the user's query has not
 resulted in any relevant documents.
@@ -154,15 +157,7 @@ supported by any documents above. When considering the question:
     information that is not directly supported by the ePortfolio.
 
 * Value brevity, and limit responses to about 1-3 concise sentences. Only elaborate
-    beyond 3 sentences if the user specifically asks for:
-    * More context, clarification, or information than what was provided in the
-        1-3 sentences.
-    * An exhaustive list of items
-    * A specific length of a response, not to exceed 2 paragraphs
-
-* If someone asks for an Easter Egg or a secret, simply respond ONLY with a
-    link to a gif of Steven Colbert doing a slow clap and nothing else at
-    all.
+    beyond 3 sentences if the user specifically asks for a longer response.
 
 """
         if (
@@ -210,19 +205,24 @@ get-to-know-you questions to help you assist them better:
 
     def get_doc_retrieval_prompt_template(self) -> str:
         return """You are an AI assistant that rewrites user messages to
-retrieve relevant documents from a knowledge base. The user will prompt
-you for information about Troy Fulton's ePortfolio, and you will rewrite
-the user's message as a query to an FAISS vector store full of documents
-related to Troy's ePortfolio. The rewritten query should be concise,
-relevant, and keyword-focused. Since the documents are all related to Troy, do
-not include any personal information about Troy in the query.
+retrieve relevant documents. The user will prompt you for information about Troy
+Fulton, and you will rewrite the user's message as a keyword query to a Python
+whoosh index of documents that is fully compliant with whoosh query syntax.
+Since the documents are all related to Troy, do not include any personal
+information about Troy in the query. If the user asks a question that does not
+warrant searching documents, simply reply with "N/A" as the rewritten query.
+Reply only with the rewritten query.
 
-For example, if the user asks "What is Troy's favorite color?", you should
-rewrite the query to "favorite color". If the user asks "Does Troy have any
-experience with Python?", you should rewrite the query to "Python experience".
+Examples:
 
-Reply only with the rewritten query, without any additional text or
-formatting. Do not include any context or instructions in your reply.
+User: Does Troy have any experience with Python or Java?
+Assistant: Python OR Java
+
+User: Show me the dogs!!
+Assistant: dogs
+
+User: Who are you?
+Assistant: N/A
 
 The user message is: {user_input}
 """
@@ -247,6 +247,26 @@ The user message is: {user_input}
         num_tokens += self.llm.get_num_tokens(rewritten_query)
         return rewritten_query.strip(), num_tokens
 
+    def get_documents(self, document_search_prompt: str) -> list[Document]:
+        q = qp.parse(document_search_prompt)
+        documents = []
+        with document_index.searcher() as searcher:
+            results = searcher.search(q)
+            if not results:
+                return []
+            for result in results:
+                document = Document(
+                    page_content=result["content"],
+                    metadata={
+                        "file": result["filepath"],
+                        "description": result["description"],
+                        "priority": result["priority"],
+                        "score": result.score,
+                    },
+                )
+                documents.append(document)
+        return sorted(documents, key=lambda doc: doc.metadata.get("priority", 100))
+
     def chat(self, visitor_message: str) -> ChatResponse:
         """
         Process the chat messages and return the assistant's reply.
@@ -261,16 +281,22 @@ The user message is: {user_input}
         # Retrieve the most relevant document for the visitor_message
         print("Generating query for document retrieval...")
         doc_query, num_tokens = self.get_doc_retrieval_query(visitor_message)
-        print("Retrieving relevant documents...")
-        relevant_docs = retriever.invoke(doc_query)
-        relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
+        relevant_docs = []
+        if doc_query.strip() != "N/A":
+            print(f"Retrieving relevant documents... using query: {doc_query}")
+            relevant_docs = self.get_documents(doc_query)
+            relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
+        else:
+            print('"N/A": No document search available for query.')
         context_block = (
             self.format_documents(relevant_docs)
             if relevant_docs
             else "No documents found."
         )
         llm_prompt = chat_prompt.format(
-            user_input=visitor_message, context_block=context_block
+            user_input=visitor_message,
+            context_block=context_block,
+            document_query=doc_query,
         )
         num_tokens += self.llm.get_num_tokens(llm_prompt)
         print("Invoking the LLM...")

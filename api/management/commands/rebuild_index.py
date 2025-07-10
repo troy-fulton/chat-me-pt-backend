@@ -15,7 +15,6 @@ class Command(BaseCommand):
             doc_directory=DOC_DIRECTORY, doc_index_path=DOC_INDEX_PATH
         )
 
-        vector_store = indexer.build_vectorstore()
-        indexer.save_vectorstore(vector_store)
-        msg = f"Vector index built from {DOC_DIRECTORY} saved to {DOC_INDEX_PATH}"
+        indexer.build_whoosh_index()
+        msg = f"Whoosh index built from {DOC_DIRECTORY} saved to {DOC_INDEX_PATH}"
         self.stdout.write(self.style.SUCCESS(msg))

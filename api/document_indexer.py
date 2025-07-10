@@ -11,12 +11,16 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_huggingface import HuggingFaceEmbeddings
+from whoosh.analysis import StemmingAnalyzer
+from whoosh.fields import ID, NUMERIC, TEXT, Schema
+from whoosh.index import FileIndex, create_in, open_dir
 
 
 class DocumentMetadata(TypedDict):
     filename: str
     description: str
     semantic: bool
+    priority: int
 
 
 class DirectoryRAGIndexer:
@@ -70,6 +74,7 @@ class DirectoryRAGIndexer:
                 loaded_doc.metadata["filepath"] = filepath
                 loaded_doc.metadata["file"] = document["filename"]
                 loaded_doc.metadata["description"] = document["description"]
+                loaded_doc.metadata["priority"] = document.get("priority", 0)
             docs.extend(loaded_docs)
 
         print(f"Loaded {len(docs)} documents from {self.directory}.")
@@ -85,6 +90,7 @@ class DirectoryRAGIndexer:
                         "filepath": self.directory / entry["filename"],
                         "file": entry["filename"],
                         "description": entry["description"],
+                        "priority": entry.get("priority", 100),
                     },
                 )
             )
@@ -105,6 +111,47 @@ class DirectoryRAGIndexer:
             raise ValueError("No documents found to index.")
         print("Building vector store...")
         return FAISS.from_documents(docs, self.embeddings)
+
+    def whoosh_schema(self) -> Schema:
+        return Schema(
+            id=ID(stored=True),
+            content=TEXT(stored=True, analyzer=StemmingAnalyzer()),
+            description=TEXT(stored=True, analyzer=StemmingAnalyzer()),
+            priority=NUMERIC(stored=True, default=100),
+            filepath=TEXT(stored=True),
+        )
+
+    def whoosh_index_path(self) -> Path:
+        if not self.doc_index_path:
+            raise ValueError("Document index path is not set.")
+        return Path(self.doc_index_path) / "whoosh_index"
+
+    def build_whoosh_index(self) -> FileIndex:
+        print("Building Whoosh index...")
+        schema = self.whoosh_schema()
+        index_dir = self.whoosh_index_path()
+        if not index_dir.exists():
+            index_dir.mkdir()
+        index = create_in(index_dir, schema)
+        writer = index.writer()
+        docs = self._load_documents()
+        for doc in docs:
+            writer.add_document(
+                id=str(doc.id),
+                content=doc.page_content,
+                description=doc.metadata.get("description", ""),
+                priority=doc.metadata.get("priority", 100),
+                filepath=str(doc.metadata.get("file", "")),
+            )
+        writer.commit()
+        print(f"Whoosh index built at {index_dir}.")
+        return index
+
+    def get_whoosh_index(self) -> FileIndex:
+        index_dir = self.whoosh_index_path()
+        if not index_dir.exists():
+            raise ValueError(f"Whoosh index path {index_dir} does not exist.")
+        return open_dir(index_dir)
 
     def get_vectorstore(self) -> FAISS:
         if not self.doc_index_path:
