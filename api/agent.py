@@ -226,6 +226,9 @@ Assistant: N/A
 User: Who is Troy?
 Assistant: Troy OR Fulton
 
+User: What does Troy do for fun?
+Assistant: fun OR hobbies OR interests
+
 The user message is: {user_input}
 """
 
