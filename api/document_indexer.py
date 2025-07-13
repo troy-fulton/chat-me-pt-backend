@@ -124,14 +124,12 @@ class DirectoryRAGIndexer:
     def whoosh_index_path(self) -> Path:
         if not self.doc_index_path:
             raise ValueError("Document index path is not set.")
-        return Path(self.doc_index_path) / "whoosh_index"
+        return Path(self.doc_index_path)
 
     def build_whoosh_index(self) -> FileIndex:
         print("Building Whoosh index...")
         schema = self.whoosh_schema()
         index_dir = self.whoosh_index_path()
-        if not index_dir.exists():
-            index_dir.mkdir()
         index = create_in(index_dir, schema)
         writer = index.writer()
         docs = self._load_documents()
