@@ -205,20 +205,31 @@ get-to-know-you questions to help you assist them better:
         return chat_history
 
     def get_doc_retrieval_prompt_template(self) -> str:
-        return """You are an AI assistant that rewrites user messages to
-retrieve relevant documents. The user will prompt you for information about Troy
-Fulton, and you will rewrite the user's message as a keyword query to a Python
-whoosh index of documents that is fully compliant with whoosh query syntax. If
-the user asks a question that does not warrant searching documents, simply reply
-with "N/A" as the rewritten query. Reply only with the rewritten query.
+        return """You are an AI assistant that rewrites user prompts to
+retrieve relevant documents from a Python whoosh index. Troy Fulton has written
+documents in an ePortfolio for you to search. These documents contain
+information about not only Troy's skills, projects, and experiences but also his
+personal life. Your job is to follow these steps:
+
+1. Determine if the user prompt is asking something about Troy that can be
+   turned into a keyword search query. If the user prompt is not asking about
+   Troy, simply return "N/A".
+
+2. If the user prompt is asking about Troy, rewrite the user prompt into a
+   concise keyword search query that can be used to retrieve relevant documents.
+   Include synonyms and break down broader queries into more specific keywords
+   up to a maximum of 10 keywords if necessary. Unless the user is specifically
+   asking about Troy's name or about Troy in general without any specific
+   context, do not include the name "Troy" or "Fulton" in the query, since
+   almost all the documents will match with that name.
 
 Examples:
 
 User: Does Troy have any experience with Python or Java?
 Assistant: Python OR Java
 
-User: Show me the dogs!!
-Assistant: dogs
+User: Does Troy have pets?
+Assistant: pet OR animal OR cat OR dog OR fish OR bird OR hamster OR rabbit
 
 User: Who are you?
 Assistant: N/A
@@ -227,7 +238,10 @@ User: Who is Troy?
 Assistant: Troy OR Fulton
 
 User: What does Troy do for fun?
-Assistant: fun OR hobbies OR interests
+Assistant: fun OR hobbies OR interests OR leisure OR activity
+
+User: What is Troy's favorite color?
+Assistant: color AND (favorite OR preferred OR like OR love)
 
 The user message is: {user_input}
 """
