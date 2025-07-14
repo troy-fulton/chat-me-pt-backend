@@ -98,6 +98,11 @@ project through the use of software hashing. I also served as a project manager
 for developing the business requirements for the data warehouse into technical
 ones.
 
+- After the Texas Oncology project, I adopted that use of Delta Lake in our
+Aspen ETL stack. I started writing EMR data in a smartly partitioned Delta Lake
+using Spark as a much more "big data-native" solution to the problem than using
+segmented Postgres databases.
+
 - As Aspen Insights and Cedar Health Research continued to grow, I gained a
 leadership role in January 2025 as Director of Data Engineering and
 Infrastructure. In this role, I became a cross-functional leader across
