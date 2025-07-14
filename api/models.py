@@ -30,6 +30,10 @@ class ChatMessage(models.Model):
         ("assistant", "Assistant"),
         ("system", "System"),
     )
+    LLM_USE_CHOICES = (
+        ("chat", "Chat"),
+        ("document_query", "Document Query"),
+    )
 
     conversation = models.ForeignKey(
         Conversation, related_name="messages", on_delete=models.CASCADE
@@ -39,3 +43,4 @@ class ChatMessage(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
     token_count = models.IntegerField(default=0)
+    llm_use = models.CharField(max_length=20, choices=LLM_USE_CHOICES, default="chat")

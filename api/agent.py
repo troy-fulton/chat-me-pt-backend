@@ -59,6 +59,11 @@ class AIChat(TypedDict):
     max_tokens: int
 
 
+class TokenUsage(TypedDict):
+    input_tokens: int
+    output_tokens: int
+
+
 class ChatException(Exception):
     """Base class for chat-related exceptions."""
 
@@ -84,7 +89,7 @@ class ChatMessageTooLongException(ChatException):
 class ChatResponse(TypedDict):
     response: str
     relevant_documents: list[str]
-    tokens_used: int
+    token_usage: TokenUsage
 
 
 @dataclass
@@ -235,6 +240,9 @@ personal life. Your job is to follow these steps:
    context, do not include the name "Troy" or "Fulton" in the query, since
    almost all the documents will match with that name.
 
+Reply ONLY with the rewritten query, without any additional text or explanation.
+Do not include any punctuation, special characters, or quotes in the query.
+
 Examples:
 
 User: Does Troy have any experience with Python or Java?
@@ -258,14 +266,14 @@ Assistant: color AND (favorite OR preferred OR like OR love)
 The user message is: {user_input}
 """
 
-    def get_doc_retrieval_query(self, user_input: str) -> tuple[str, int]:
+    def get_doc_retrieval_query(self, user_input: str) -> tuple[str, TokenUsage]:
         """
         Generate a prompt for document retrieval based on the user input.
         This prompt is used to rewrite the user message into a query for
         the FAISS vector store.
         """
         doc_retrieval_prompt = self.get_doc_retrieval_prompt_template()
-        num_tokens = self.llm.get_num_tokens(
+        num_input_tokens = self.llm.get_num_tokens(
             doc_retrieval_prompt.format(user_input=user_input)
         )
         chain: RunnableSerializable[dict[str, str], str] = (
@@ -275,8 +283,11 @@ The user message is: {user_input}
         )
         # Invoke the chain with the user input to get the rewritten query
         rewritten_query = chain.invoke({"user_input": user_input})
-        num_tokens += self.llm.get_num_tokens(rewritten_query)
-        return rewritten_query.strip(), num_tokens
+        num_output_tokens = self.llm.get_num_tokens(rewritten_query)
+        return rewritten_query.strip(), {
+            "input_tokens": num_input_tokens,
+            "output_tokens": num_output_tokens,
+        }
 
     def get_documents(self, document_search_prompt: str) -> list[Document]:
         q = qp.parse(document_search_prompt)
@@ -299,7 +310,7 @@ The user message is: {user_input}
                 documents.append(document)
         return sorted(documents, key=lambda doc: doc.metadata.get("priority", 100))
 
-    def chat(self, visitor_message: str) -> ChatResponse:
+    def chat(self, visitor_message: str, document_query: str | None) -> ChatResponse:
         """
         Process the chat messages and return the assistant's reply.
         This method expects the chat_data to contain messages in LangChain format.
@@ -310,16 +321,12 @@ The user message is: {user_input}
         """
         chat_history = self.generate_chat_history()
         chat_prompt = ChatPromptTemplate.from_messages(chat_history)
-        # Retrieve the most relevant document for the visitor_message
-        print("Generating query for document retrieval...")
-        doc_query, num_tokens = self.get_doc_retrieval_query(visitor_message)
         relevant_docs = []
-        if doc_query.strip() != "N/A":
-            print(f"Retrieving relevant documents... using query: {doc_query}")
-            relevant_docs = self.get_documents(doc_query)
+        doc_query = document_query if document_query else "No query provided"
+        if document_query is not None:
+            print(f"Retrieving relevant documents... using query: {document_query}")
+            relevant_docs = self.get_documents(document_query)
             relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
-        else:
-            print('"N/A": No document search available for query.')
         context_block = (
             self.format_documents(relevant_docs)
             if relevant_docs
@@ -330,7 +337,6 @@ The user message is: {user_input}
             context_block=context_block,
             document_query=doc_query,
         )
-        num_tokens += self.llm.get_num_tokens(llm_prompt)
         print("Invoking the LLM...")
         rag_response = self.llm.invoke(
             llm_prompt,
@@ -343,11 +349,13 @@ The user message is: {user_input}
             raise TypeError(
                 f"Expected response content to be a string, got {type(response_string)}"
             )
-        num_tokens += self.llm.get_num_tokens(response_string)
         return {
             "response": response_string,
             "relevant_documents": [doc.metadata["file"] for doc in relevant_docs],
-            "tokens_used": num_tokens,
+            "token_usage": {
+                "input_tokens": self.llm.get_num_tokens(llm_prompt),
+                "output_tokens": self.llm.get_num_tokens(response_string),
+            },
         }
 
     def name_chat(self, first_message: str) -> str:
