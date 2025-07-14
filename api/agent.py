@@ -14,6 +14,7 @@ from langchain_core.runnables import (
 )
 from pydantic import SecretStr
 from transformers.pipelines import pipeline
+from whoosh.index import FileIndex
 from whoosh.qparser import FuzzyTermPlugin, MultifieldParser, PrefixPlugin
 
 from .document_indexer import DirectoryRAGIndexer
@@ -32,7 +33,18 @@ rag_indexer = DirectoryRAGIndexer(DOC_DIRECTORY, doc_index_path=DOC_INDEX_PATH)
 qp = MultifieldParser(["content", "description"], schema=rag_indexer.whoosh_schema())
 qp.add_plugin(FuzzyTermPlugin())
 qp.add_plugin(PrefixPlugin())
-document_index = rag_indexer.get_whoosh_index()
+document_index: FileIndex | None = None
+
+
+def get_document_index() -> FileIndex:
+    """
+    Returns the Whoosh index for the documents.
+    This is used to search for relevant documents based on user queries.
+    """
+    global document_index
+    if document_index is None:
+        document_index = rag_indexer.get_whoosh_index()
+    return document_index
 
 
 class ChatAgentMessage(TypedDict):
@@ -269,7 +281,8 @@ The user message is: {user_input}
     def get_documents(self, document_search_prompt: str) -> list[Document]:
         q = qp.parse(document_search_prompt)
         documents = []
-        with document_index.searcher() as searcher:
+        doc_index = get_document_index()
+        with doc_index.searcher() as searcher:
             results = searcher.search(q)
             if not results:
                 return []
