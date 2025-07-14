@@ -67,5 +67,11 @@
         "description": "A photo of Troy and his family, including his husband Kayden, and their dogs Benji, Freckles, and Charlie.",
         "semantic": true,
         "priority": 4
+    },
+    {
+        "filename": "Aspen/about.txt",
+        "description": "A retrospective on Troy's time at Aspen Insights, an AI startup in Fort Worth, Texas, where he has worked as a director since 2020.",
+        "semantic": false,
+        "priority": 2
     }
 ]

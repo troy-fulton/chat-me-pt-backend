@@ -1,0 +1,123 @@
+Troy Fulton works at Aspen Insights - a technology startup company in Fort
+Worth, Texas. Aspen Insights partners with Cedar Health Research to deliver
+powerful, AI-driven solutions to clinical trial recruitment. Below is a
+retrospective look at Troy's experiences working for Aspen over the years:
+
+- When I was hired in 2020, I started as a Software Engineer. I started off
+writing API integrations with an EHR (Electronic Health Record - or EMR for
+Electronic Medical Record) Greenway Health to collect patient data for partner
+practices in the form of CCD (Continuity of Care) documents expressed in XML. I
+quickly learned the importance of data quality and software contracting as I
+developed this integration with an API that returned sometimes-valid HTML-like
+XML. My first task was simply to develop a pipeline to read the XML data, write
+each response as a document in Azure BLOB storage, parse each document, and
+write the results in an Azure Postgres Database. As I grew more comfortable in
+the company culture and understanding the business as a whole, I was assigned
+more EHRs, like Veradigm (called "Allscripts" at the time). As I developed more
+EHR integrations, I applied my knowledge of OOP (Object Oriented Programming) to
+generalize the pipeline so that different CCDs from different EHRs could be
+processed with DRY-er code.
+
+- This generic code base significantly helped when developing more heterogeneous
+pipelines, such as direct-database connections, cloud-hosted solutions, and
+SFTP-based file transfer pipelines. I quickly learned to program for failure to
+create a reliable pipeline delivering the highest data quality possible.
+
+- Along the way, I began learning the beginner concepts of Kubernetes, such as
+pods, deployments, stateful sets, and services. I also learned several Azure
+basics like how to manage Keyvault resources, Storage Accounts, and Azure
+Postgres. I also learned HCL and the concepts of terraform, such as state
+storage, commands and syntax for creating, destroying, and modifying resources,
+and validation.
+
+- By 2023, when I became Sr. Big Data Engineer, our data size had grown into
+"Big Data" territory, topping a few terrabytes. At scale, we were statistically
+deidentifying the data, annotating it with ML enrichment, and presenting it to a
+frontend application through Apache SOLR. Although this wasn't an official
+leadership position, I started to refine my leadership skills as I took
+responsibility for many of the data pipeline operations. I learned the Apache
+Spark stack, including pySpark and Spark on Kubernetes (A.K.A. "Spark
+Applications") via client mode and cluster mode. This was my introduction to
+Kubernetes Helm Charts and Custom Resources, as I became responsible for
+tracking my own resource usage for ephemeral Spark Application clusters that
+spun up and down for ETL jobs.
+
+- Along the way, we learned about Azure Spot compute and significantly reduced
+our cloud costs by switching many of our ephemeral, non-production software to
+those nodes. Although I didn't discover this optimization, I did help implement
+it. I also began to use Spark's Delta Lake implementation in Azure Data Lake for
+optimized storage and access.
+
+- Eventually, we started using Azure Databricks, including the jobs and
+notebooks features.
+
+- As our EHR pipelines grew more sophisticated, we tried to become early adopers
+of FHIR, the new well-defined standard for electronic medical data
+interoperability in the industry. Unfortunately, industry adoption has so far
+been to slow for our full adoption of this technology, but I implemented a
+client that is ready for when the industry catches up.
+
+- During this time, I also learned to use Prodigy, an ML classification tool,
+for training an NER model to recognize PHI in plain text. Although I only dipped
+my toes in training the model, I helped annotate examples and deploy Prodigy in
+kubernetes to help others become annotators as we scaled the process. We used
+Prodigy both for NER and classification in redacting PHI.
+
+- As the project matured, and as the AI boom took off, we started to adopt
+LangChain and LLMs as a solution to the problem. Secure agents offered by Azure
+were able to understand the requirements of deidentification under the HIPAA
+Privacy Rule and could redact free text better than the NER models in most
+cases. As I worked through deploying this solution, I gained insight into how to
+use LiteLLM and how to stay cost-conscious of LLM API usage.
+
+- As our technology stack grew, I also learned new technologies like AMQP (a
+message broker protocol) using RabbitMQ and Redis, an efficient key-value store,
+for microservice architecture implementations. In some small cases, I even
+helped develop small parts of Aspen Forge, our main application for searching
+for patients, which is written with a separately deployed backend in Python
+(Django) and frontend in Vue.js (via Nuxt).
+
+- Around this time, I also started to pick up on more subtle concepts in Docker,
+such as caching and multi-stage builds. Our Aspen infrastructure for CI/CD grew
+very sophisticated and generic, and I contributed to automatic static analysis
+of some of the many Python projects we had. Through imported CI/CD in Gitlab and
+general DevOps practices, I helped to enforce a very high standard for
+programming across the organization.
+
+- In 2023, we started working with Texas Oncology to unify 5+ different siloed
+systems representing 2 million + patients into a data warehouse with a high
+standard for data quality. This project helped the organization with a number of
+efforts, but perhaps the most significant is their new ability to search through
+millions of paper documents that were previously untapped as "dark data."
+Through Azure's powerful ML-powered OCR algorithms combined with our cleaned
+data warehouse, we indexed terrabytes of text for searching, which streamlined
+several operations across the business. I was responsible for the data pipelines
+tying together the different systems and for leading the team that made the data
+searchable. I also tapped into data quality unknown to Texas Oncology before the
+project through the use of software hashing. I also served as a project manager
+for developing the business requirements for the data warehouse into technical
+ones.
+
+- As Aspen Insights and Cedar Health Research continued to grow, I gained a
+leadership role in January 2025 as Director of Data Engineering and
+Infrastructure. In this role, I became a cross-functional leader across
+technical and nontechnical domains to help streamline business processes. I
+spearheaded new projects to integrate with more of Cedar's systems, such as
+their CTMS RealTime, to gain operational insights with the "CHR Data Lake." At
+one of the highest technical positions in the company, I learned valuable
+leadership and business awareness skills. My role became increasingly focused on
+analyzing Cedar's operations as a whole and identifying use cases for LLMs
+across the business.
+
+- One particular case where I found that LLMs could be useful is in forming a
+feedback loop between the organization running the trial (Cedar's outreach team)
+and the technical team (Aspen's recruitment team). To do this, I started by
+un-siloing the data with the RealTime integration. Then, I broke the problem
+down into pieces by analyzing the text for what was of interest. I implemented a
+LangChain pipeline for identifying relevant text to the trial criteria and
+caching the results. Then, the pipeline provided the LLM with the trial criteria
+and the text that describes why a patient might not have qualified. The LLM was
+prompted to identify which criteria the patient failed for so that reports could
+be built on a regular basis for why a patient did not qualify. This allowed
+recruitment to more quickly and effectively adapt their recruitment strategy for
+the outreach team's goals.
