@@ -1,5 +1,6 @@
 import json
 import os
+import traceback
 from datetime import timedelta
 from typing import Any
 
@@ -304,17 +305,19 @@ class ChatAPIView(ChatBaseAPIView):
         user_message = request_data["message"]
         document_query = request_data["document_query"]
 
-        user_message_timestamp = timezone.now()
         # Pull the whole conversation history
-        messages = ChatMessage.objects.filter(conversation=conversation).order_by(
+        all_messages = ChatMessage.objects.filter(conversation=conversation).order_by(
             "-timestamp"
-        )[:MAX_MESSAGE_HISTORY]
-        existing_conversation_length = messages.count()
-        is_first_message = existing_conversation_length == 0
+        )
+        num_visitor_messages = all_messages.filter(role="visitor").count()
+        recent_messages = all_messages[:MAX_MESSAGE_HISTORY]
+        # Reverse the order to have the oldest message first
+        ordered_messages = list(recent_messages[::-1])
+        is_first_message = num_visitor_messages == 1
 
         print("Creating chat agent...")
         agent = ChatAgent(
-            ChatAgentData(messages=list(messages), max_tokens_to_sample=1024),
+            ChatAgentData(messages=ordered_messages, max_tokens_to_sample=1024),
             visitor,
         )
 
@@ -340,19 +343,12 @@ class ChatAPIView(ChatBaseAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        print("Creating visitor chat message...")
-        ChatMessage.objects.create(
-            conversation=conversation,
-            content=user_message,
-            role="visitor",
-            token_count=agent.llm.get_num_tokens(user_message),
-            timestamp=user_message_timestamp,
-        )
-
         try:
             print("Generating response from agent...")
             chat_response = agent.chat(user_message, document_query)
         except Exception as e:
+            print("Exception occurred during agent response generation:")
+            traceback.print_exc()
             return Response(
                 {"error": "Failed to generate response.", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -459,7 +455,7 @@ class DocumentQueryAPIView(ChatBaseAPIView):
         print("Response generated, saving assistant chat message...")
         ChatMessage.objects.create(
             conversation=conversation,
-            content=doc_query,
+            content=f"Searching for documents using this query: {doc_query}",
             referenced_documents=[],
             role="assistant",
             token_count=token_usage["output_tokens"],

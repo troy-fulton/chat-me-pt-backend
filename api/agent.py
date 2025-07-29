@@ -35,6 +35,14 @@ qp.add_plugin(FuzzyTermPlugin())
 qp.add_plugin(PrefixPlugin())
 document_index: FileIndex | None = None
 
+print("Loading Prompt-Guard-86M pipeline...")
+prompt_guard_classifier = pipeline(
+    "text-classification",
+    model="meta-llama/Llama-Prompt-Guard-2-86M",
+    top_k=None,
+    token=HUGGINGFACE_HUB_TOKEN,
+)
+
 
 def get_document_index() -> FileIndex:
     """
@@ -148,47 +156,106 @@ class ChatAgent:
 
     def get_system_message_template(self) -> str:
         system_message_template = """
-You are an AI assistant designed to answer questions about Troy Fulton's
-ePortfolio. The user has asked a question, and based on the question, the
-following subset of documents from Troy's ePortfolio are the most relevant:
+You are an AI chat assistant designed to answer questions about Troy Fulton's
+ePortfolio. You will answer the user's most recent prompt based ONLY on the
+EXACT content of documents that contain information about Troy. Another agent
+has curated a query to retrieve documents about Troy based on the user's input.
+You will use these documents as context when responding to user prompts.
 
-{context_block}
+Respond in a professionally positive tone, and do not continue the conversation
+on your own. If you have no documents to support your response, it does not mean
+that those documents don't exist. It just means that the query did not result in
+the right documents.
 
-The query used to retrieve these documents: "{document_query}"
+* Value brevity above all else. Always limit responses to 4 concise sentences or
+    3 short bullet points at most. Only elaborate beyond that if the user
+    specifically asks for a longer response.
 
-If no documents are available, it doesn't mean there are no documents in Troy's
-ePortfolio. It means that a keyword search using the user's query has not
-resulted in any relevant documents.
+* Documents are provided to you in order of relevance and priority.
 
-You will chat with a user asking questions about Troy Fulton. Respond to
-the most recent prompt in a professionally positive tone, and limit your answers
-to those supported by any documents above. When considering the question:
+* If you find evidence in the document(s) to answer the prompt, provide a
+    short, contextually accurate, and relevant answer. Use in-line citations by
+    including the file name in parentheses, like this: (File: filename.ext).
 
-* If you have the document(s) to answer the question, provide a
-    concise, accurate, and relevant answer based ONLY on the ePortfolio content,
-    and cite your source in your answer. If you do not have the document(s) to
-    answer the question, give an evidence-based response like "I couldn't find
-    that information in the documents available to me." Do not provide false
-    information or information that is not directly supported by the ePortfolio.
-
-* Value brevity above all else. Always limit responses to about 1-3 concise
-    sentences or two or three short bullet points. Only elaborate beyond that if
-    the user specifically asks for a longer response.
+* If you do not find evidence in the document(s) to answer the prompt, give an
+    evidence-based response like "Based on the documents resulting from the
+    query, I do not have any information about that."
 
 * End each response with an emoji that matches the tone of your response.
 
+Conversations will be wrapped in an XML tag for clarity using the <chat> tag,
+but you will only respond with the content of your singular response to the most
+recent human prompt. Do not include any XML/HTML in your response.
+
+Here is an example conversation to help you understand how to respond. It
+contains hypothetical messages and documents, but you should not use this as
+context for your responses:
+<chat>
 """
+
+        example_conversation = [
+            ("human", "What experience does Troy have with Python?"),
+            (
+                "ai",
+                "Searching for documents using this query: "
+                + "Python AND (programming OR coding)",
+            ),
+            (
+                "system",
+                "[File: school_project.pptx, Description: Troy's CSCE Project] "
+                + "This is Troy's presentation from his CSCE 1200 class where he "
+                + "designed a Python program to analyze data.\n"
+                + "[File: puppies.png, Description: A photo of Troy's dogs] "
+                + "This is a photo of Troy's dogs.",
+            ),
+            (
+                "ai",
+                "According to Troy's CSCE Project (File: school_project.pptx), "
+                + "he has experience with Python programming from his CSCE 1200 class, "
+                + "where he used Python to analyze data. 🐍",
+            ),
+            ("human", "What other programming languages does Troy know?"),
+            (
+                "ai",
+                "Searching for documents using this query: "
+                "language AND (programming OR coding OR software OR computer)",
+            ),
+            (
+                "system",
+                "[File: school_project.pptx, Description: Troy's CSCE Project] "
+                + "This is Troy's presentation from his CSCE 1200 class where he "
+                + "designed a Python program to analyze data.\n"
+                + "[File: engr_project.pptx, Description: Troy's Engineering Project] "
+                + "This is Troy's presentation from his Engineering class where he "
+                + "designed a Java program to simulate a circuit.",
+            ),
+        ]
+        system_message_template += ChatPromptTemplate.from_messages(
+            example_conversation
+        ).format()
+        system_message_template += (
+            "\n</chat>\n\nHere is how you should respond, "
+            + "given the hypothetical context above:\n"
+        )
+        system_message_template += (
+            "According to Troy's Engineering Project (File: engr_project2.pptx), "
+            + "he also has experience with Java programming from his Engineering "
+            + "class, where he used Java to simulate a circuit. ⚙️\n\n"
+        )
         if (
             self.visitor.name != ""
             or self.visitor.interests != ""
             or self.visitor.company != ""
         ):
-            system_message_template += f"""Here are the user's responses to some
-get-to-know-you questions to help you assist them better:
-1. What's your name? "{self.visitor.name}"
-2. What, about Troy, are you interested in? "{self.visitor.interests}"
-3. What organization do you represent, if any? "{self.visitor.company}"
-            """
+            system_message_template += f"""Here is some user data:
+Name: "{self.visitor.name}"
+Interests: "{self.visitor.interests}"
+Organization: "{self.visitor.company}"
+
+"""
+
+        system_message_template += "Below is a recent history of the chat.\n\n"
+        system_message_template += "<chat>\n"
         system_message_template = system_message_template.strip()
         return system_message_template
 
@@ -218,53 +285,76 @@ get-to-know-you questions to help you assist them better:
         if len(chat_history) == 0 or chat_history[0][0] != "system":
             system_message_template = self.get_system_message_template()
             chat_history.insert(0, ("system", system_message_template))
-        chat_history.append(("human", "{user_input}"))
         return chat_history
 
     def get_doc_retrieval_prompt_template(self) -> str:
-        return """You are an AI assistant that rewrites user prompts to
-retrieve relevant documents from a Python whoosh index. Troy Fulton has written
-documents in an ePortfolio for you to search. These documents contain
-information about not only Troy's skills, projects, and experiences but also his
-personal life. Your job is to follow these steps:
+        return """
+You are an expert at interpreting user prompts, determining keywords to search
+on, and rewriting them into valid Whoosh keyword search queries for retrieving
+documents about Troy Fulton from his ePortfolio. Your job is to follow these
+strict instructions:
 
-1. Determine if the user prompt is asking something about Troy that can be
-   turned into a keyword search query. If the user prompt is not asking about
-   Troy, simply return "N/A".
+    1. If the user prompt is NOT asking about Troy, reply with exactly: N/A
 
-2. If the user prompt is asking about Troy, rewrite the user prompt into a
-   concise keyword search query that can be used to retrieve relevant documents.
-   Include synonyms and break down broader queries into more specific keywords
-   up to a maximum of 10 keywords if necessary. Unless the user is specifically
-   asking about Troy's name or about Troy in general without any specific
-   context, do not include the name "Troy" or "Fulton" in the query, since
-   almost all the documents will match with that name.
+    2. If the user prompt IS asking about Troy, rewrite the prompt into a
+        concise Whoosh keyword search query using only keywords and quoted
+        multi-word phrases.
+       - ALWAYS enclose every multi-word phrase in double quotes, even if it
+         appears in parentheses or as part of a logical expression.
+       - NEVER leave a multi-word phrase unquoted.
+       - Use logical operators (AND, OR) as appropriate, and group terms with
+         parentheses if needed.
+       - Do NOT include any punctuation, special characters, or quotes except
+         for quoting multi-word phrases.
+       - Unless the user is specifically asking about Troy's name or about Troy
+         in general, do NOT include "Troy" or "Fulton" in the query.
+       - Expand broad queries into up to 10 relevant keywords or quoted phrases,
+         including synonyms if helpful.
+       - Include only keywords likely to be in the documents. That is, do NOT
+         include stop words or question words like "what" or "how" or "and."
 
-Reply ONLY with the rewritten query, without any additional text or explanation.
-Do not include any punctuation, special characters, or quotes in the query.
+    3. Reply ONLY with the rewritten query, with no explanation or extra text.
 
-Examples:
+    Examples:
 
-User: Does Troy have any experience with Python or Java?
-Assistant: Python OR Java
+    User: Does Troy have any experience with Python or Java?
+    Assistant: Python OR Java
 
-User: Does Troy have pets?
-Assistant: pet OR animal OR cat OR dog OR fish OR bird OR hamster OR rabbit
+    User: Does Troy have pets?
+    Assistant: pet OR animal OR cat OR dog OR fish OR bird OR hamster OR rabbit
 
-User: Who are you?
-Assistant: N/A
+    User: Who are you?
+    Assistant: N/A
 
-User: Who is Troy?
-Assistant: Troy OR Fulton
+    User: Who is Troy?
+    Assistant: Troy OR Fulton
 
-User: What does Troy do for fun?
-Assistant: fun OR hobbies OR interests OR leisure OR activity
+    User: What does Troy do for fun?
+    Assistant: fun OR hobbies OR interests OR leisure OR activity
 
-User: What is Troy's favorite color?
-Assistant: color AND (favorite OR preferred OR like OR love)
+    User: What is Troy's favorite color?
+    Assistant: color AND (favorite OR preferred OR like OR love)
 
-The user message is: {user_input}
-"""
+    User: What did Troy do in high school?
+    Assistant: "high school" AND (experience OR activities OR clubs OR sports OR events)
+
+    User: Tell me about Troy's software engineering projects.
+    Assistant: "software engineering" OR project OR application OR code
+            OR development OR "software project"
+
+    User: what about his personal life?
+    Assistant: "personal life" OR family OR friends OR relationships OR hobbies
+
+    REMEMBER: If you use a phrase with more than one word, it MUST be in double
+    quotes. If you do not follow this, the query will be invalid and will cause
+    a critical error.
+
+    REMEMBER: Only include meaningful keywords and phrases and do NOT include
+    question words or stop words like "who" or "what". Doing so will result in a
+    nuclear meltdown.
+
+    The user message is: {user_input}
+    """
 
     def get_doc_retrieval_query(self, user_input: str) -> tuple[str, TokenUsage]:
         """
@@ -320,9 +410,7 @@ The user message is: {user_input}
         safe from malicious content, such as prompt injection.
         """
         chat_history = self.generate_chat_history()
-        chat_prompt = ChatPromptTemplate.from_messages(chat_history)
         relevant_docs = []
-        doc_query = document_query if document_query else "No query provided"
         if document_query is not None:
             print(f"Retrieving relevant documents... using query: {document_query}")
             relevant_docs = self.get_documents(document_query)
@@ -332,11 +420,10 @@ The user message is: {user_input}
             if relevant_docs
             else "No documents found."
         )
-        llm_prompt = chat_prompt.format(
-            user_input=visitor_message,
-            context_block=context_block,
-            document_query=doc_query,
-        )
+        chat_history.append(("system", context_block))
+        chat_prompt = ChatPromptTemplate(chat_history, input_variables=["user_input"])
+        llm_prompt = chat_prompt.format()
+        llm_prompt += "\n</chat>\n\nRemember to respond only with a single message."
         print("Invoking the LLM...")
         rag_response = self.llm.invoke(
             llm_prompt,
@@ -380,15 +467,8 @@ The user message is: {user_input}
         """
         try:
             # Load the pipeline (you may want to cache this in production)
-            print("Loading Prompt-Guard-86M pipeline...")
-            classifier = pipeline(
-                "text-classification",
-                model="meta-llama/Llama-Prompt-Guard-2-86M",
-                top_k=None,
-                token=HUGGINGFACE_HUB_TOKEN,
-            )
             print("Classifying prompt for malicious content...")
-            result = classifier(prompt)
+            result = prompt_guard_classifier(prompt)
             # result is a list of dicts, one per label
             if (
                 not result
