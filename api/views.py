@@ -22,6 +22,9 @@ from .models import ChatMessage, Conversation, Visitor
 MAX_MESSAGE_LENGTH = int(os.getenv("MAX_MESSAGE_LENGTH", "1000"))
 MAX_MESSAGE_HISTORY = int(os.getenv("MAX_MESSAGE_HISTORY", "4"))
 SESSION_HOURLY_TOKEN_LIMIT = int(os.getenv("SESSION_HOURLY_TOKEN_LIMIT", "100000"))
+DETECT_MALICIOUS_PROMPTS = (
+    os.getenv("DETECT_MALICIOUS_PROMPTS", "true").lower() == "true"
+)
 
 
 class WelcomeView(APIView):
@@ -208,9 +211,10 @@ class ChatBaseAPIView(APIView):
         if user_message_tokens > remaining_tokens:
             raise TokensExceededException(message, remaining_tokens)
 
-        is_malicious, safety_data = agent.detect_malicious_prompt(message)
-        if is_malicious:
-            raise MaliciousMessageException(message, safety_data)
+        if DETECT_MALICIOUS_PROMPTS:
+            is_malicious, safety_data = agent.detect_malicious_prompt(message)
+            if is_malicious:
+                raise MaliciousMessageException(message, safety_data)
 
     def try_get_conversation(
         self, request: Request
