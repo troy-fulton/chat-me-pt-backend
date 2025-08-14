@@ -15,7 +15,7 @@ from langchain_core.runnables import (
 from pydantic import SecretStr
 from transformers.pipelines import pipeline
 from whoosh.index import FileIndex
-from whoosh.qparser import FuzzyTermPlugin, MultifieldParser, PrefixPlugin
+from whoosh.qparser import FuzzyTermPlugin, MultifieldParser, PrefixPlugin, QueryParser
 
 from .document_indexer import DirectoryRAGIndexer
 from .models import ChatMessage, Visitor
@@ -360,7 +360,7 @@ strict instructions:
         """
         Generate a prompt for document retrieval based on the user input.
         This prompt is used to rewrite the user message into a query for
-        the FAISS vector store.
+        the document store.
         """
         doc_retrieval_prompt = self.get_doc_retrieval_prompt_template()
         num_input_tokens = self.llm.get_num_tokens(
@@ -398,7 +398,30 @@ strict instructions:
                     },
                 )
                 documents.append(document)
+
         return sorted(documents, key=lambda doc: doc.metadata.get("priority", 100))
+
+    def get_resume(self) -> Document:
+        """
+        Retrieve the resume document from the index.
+        Returns the resume document if found, otherwise raises an error.
+        """
+        doc_index = get_document_index()
+        with doc_index.searcher() as searcher:
+            query = QueryParser("filepath", schema=doc_index.schema).parse("resume.pdf")
+            results = searcher.search(query)
+            if results:
+                result = results[0]
+                return Document(
+                    page_content=result["content"],
+                    metadata={
+                        "file": result["filepath"],
+                        "description": result["description"],
+                        "priority": result["priority"],
+                        "score": result.score,
+                    },
+                )
+        raise ValueError("Resume document not found.")
 
     def chat(self, visitor_message: str, document_query: str | None) -> ChatResponse:
         """
@@ -410,11 +433,21 @@ strict instructions:
         safe from malicious content, such as prompt injection.
         """
         chat_history = self.generate_chat_history()
-        relevant_docs = []
+        relevant_docs = [self.get_resume()]
         if document_query is not None:
             print(f"Retrieving relevant documents... using query: {document_query}")
-            relevant_docs = self.get_documents(document_query)
-            relevant_docs = relevant_docs[:3]  # Limit to top 3 documents
+            # Retrieve relevant documents using the query
+            retrieved_docs = self.get_documents(document_query)
+            # Check if the first document is the resume (by filename)
+            if (
+                relevant_docs
+                and retrieved_docs[0].metadata.get("file", "") == "resume.pdf"
+            ):
+                # If resume is already included, limit to top 3 documents
+                relevant_docs = retrieved_docs[:3]
+            else:
+                # Otherwise, ensure resume is included at the start, then top 2 others
+                relevant_docs += retrieved_docs[:2]
         context_block = (
             self.format_documents(relevant_docs)
             if relevant_docs
