@@ -1,0 +1,5 @@
+Troy's GitHub is located at https://github.com/troy-fulton
+
+He has a few projects, including this very project, Chat-Me-PT, and some other
+older projects like his previous ePortfolio and PixureSlide, a fun little
+Hackathon project.

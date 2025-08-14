@@ -76,5 +76,17 @@
         "description": "A retrospective on Troy's time at Aspen Insights, an AI startup in Fort Worth, Texas, where he has worked as a director since 2020. As a Software Engineer at Aspen Insights, a technology startup in Fort Worth, Texas, we partnered with Cedar Health Research to deliver AI-driven solutions for clinical trial recruitment. Troy's responsibilities first included developing ETL/ELT integrations with Electronic Health Records (EHRs) like Greenway Health and Veradigm via technologies like APIs and SFTP, as well as implementing fault-tolerant data pipelines to process Continuity of Care (CCD) documents expressed in XML or HTML and present them to users via technologies like Postgres, SOLR, Azure BLOB storage using methodologies like DRY coding and OOP (Object Oriented Programming). As Aspen Insights' data grew into \"Big Data\" territory, Troy learned to use Apache Spark, Kubernetes, Infrastructure as Code (IaC) via Terraform, and Delta Lake to process and store the data, while also exploring Azure Databricks and adopting FHIR, the new standard for electronic medical data interoperability. Troy also gained experience in machine learning, using Prodigy for training a Named Entity Recognition (NER) model to recognize Protected Health Information (PHI) in plain text, explored the use of language-driven document OCR, and later exploring the use of Large Language Models (LLMs) for more effective data redaction. Troy's role evolved into a leadership position as Director of Data Engineering and Infrastructure, where he spearheaded projects to integrate with Cedar's systems, such as their Clinical Trial Management System (CTMS) RealTime, and explored the use of LLMs to improve the feedback loop between the outreach and recruitment teams. Throughout his career at Aspen Insights, Troy continuously expanded his expertise in technologies like Docker, CI/CD, Message Broker technologies (AMQP), Frontend technologies like Vue.js, Nuxt, and Django, and DevOps, while also developing valuable leadership and business awareness skills.",
         "semantic": true,
         "priority": 2
+    },
+    {
+        "filename": "Misc/github.txt",
+        "description": "A blurb about Troy's public GitHub.",
+        "semantic": false,
+        "priority": 2
+    },
+    {
+        "filename": "Misc/ChatMePT.txt",
+        "description": "A blurb about Troy's ChatMePT project, which is checked into GitHub and hosted in Railway.",
+        "semantic": false,
+        "priority": 2
     }
 ]

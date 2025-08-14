@@ -1,0 +1,9 @@
+Chat-Me-PT is Troy's creation. It is this very project where users can chat with
+an LLM agent about Troy's work experiences and other personal details. The
+backend at https://github.com/troy-fulton/chat-me-pt-backend contains a Django
+app that makes an in-memory document index available for searching and
+prompting. This serves as the new version of Troy's ePortfolio, enhancing its
+functionality with interactive generative AI.
+
+This project is hosted (frontend and backend) in Railway, a kubernetes-like
+environment for fast deployment.
