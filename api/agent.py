@@ -440,7 +440,7 @@ strict instructions:
             retrieved_docs = self.get_documents(document_query)
             # Check if the first document is the resume (by filename)
             if (
-                relevant_docs
+                len(retrieved_docs) >= 1
                 and retrieved_docs[0].metadata.get("file", "") == "resume.pdf"
             ):
                 # If resume is already included, limit to top 3 documents
